@@ -24,8 +24,9 @@ pub fn get_client_handles() -> Result<Vec<ClientHandle>> {
 }
 
 /// Send an atomic message to the specified control pad client
-pub fn send_message(client: ClientHandle, msg: &str) -> Result<()> {
-    let ipc_name = client + "_out";
+pub fn send_message(client: &ClientHandle, msg: &str) -> Result<()> {
+    let ipc_name = client.to_string() + "_out";
+    println!("sent {}", msg);
     ipc::write(&ipc_name, msg)?;
     ipc::write(&ipc_name, str::from_utf8(&[0])?)?;
     Ok(())
@@ -34,13 +35,14 @@ pub fn send_message(client: ClientHandle, msg: &str) -> Result<()> {
 /// Returns a vector of all messages that have been received from the
 /// specified control pad client since the last call to this function for that
 /// client
-pub fn get_messages(client: ClientHandle) -> Result<Vec<String>> {
+pub fn get_messages(client: &ClientHandle) -> Result<Vec<String>> {
     let mut ret: Vec<String> = Vec::new();
-    let ipc_name = client + "_in";
+    let ipc_name = client.to_string() + "_in";
     let msgs_string = ipc::consume(&ipc_name)?;
-    let parts = msgs_string.split(str::from_utf8(&[0])?);
+    let parts = &msgs_string.split(str::from_utf8(&[0])?).collect::<Vec<&str>>()[1..];
     for p in parts {
-	ret.push(String::from(p));
+	println!("got {}", p);
+	ret.push(String::from(*p));
     }
     Ok(ret)
 }

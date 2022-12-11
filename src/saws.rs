@@ -39,6 +39,7 @@ impl Conn {
 	loop {
 	    match self.websocket.read_message() {
 		Ok(Message::Text(s)) => {
+		    println!("Text {}", &s);
 		    msgs.push(s);
 		}
 		Ok(Message::Close(_)) => {

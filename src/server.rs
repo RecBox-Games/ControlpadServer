@@ -38,7 +38,8 @@ fn write_msgs_from_client(id: saws::ConnId, msgs: Vec<String>) -> Result<()> {
 	s += &m;
 	s += str::from_utf8(&[0])?;
     }
-    let ipc_name = id + "_out";
+    let ipc_name = id + "_in";
+    println!("--- {}", &s);
     ipc::write(&ipc_name, &s)?;
     Ok(())
 }
@@ -96,8 +97,12 @@ impl CPServer {
 
     pub fn recv_messages_for_target(&mut self) {
 	for c in &mut self.conns {
-	    write_msgs_from_client(c.id(), c.get_recved_msgs())
-		.expect("Failure writing ipc to target");
+	    let msgs = c.get_recved_msgs();
+	    if msgs.len() != 0 {
+		println!("got {:?} from {}", msgs, c.id());
+		write_msgs_from_client(c.id(), msgs)
+		    .expect("Failure writing ipc to target");
+	    }
 	}
     }
 }
