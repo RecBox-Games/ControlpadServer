@@ -2,13 +2,13 @@
 
 use std::net::{TcpStream, TcpListener};
 use tungstenite::{WebSocket, accept};
-use tungstenite::protocol::Message;
+use tungstenite::Message;
 
 pub type ConnId = String; // TODO: change to ID from browser
 
 pub struct Conn {
     websocket: WebSocket<TcpStream>,
-    id: ConnId,
+    id: String,
     dead: bool,
 }
 
@@ -61,8 +61,11 @@ impl Conn {
 	msgs
     }
 
-    pub fn send_msg(&self, msg: String) {
-	println!("can't send {}", msg);
+    pub fn send_msg(&mut self, msg: String) {
+	let res = self.websocket.write_message(Message::Text(msg));
+	if let Err(e) = res {
+	    dbg!("Warning: write_message returned an Err {}", e);
+	}
     }
 
 }
@@ -72,8 +75,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(addr: &str) -> Result<Self, std::io::Error>{
-	let server = TcpListener::bind(addr).unwrap();
+    pub fn new(port: &str) -> Result<Self, std::io::Error> {
+	let server = TcpListener::bind("0.0.0.0:".to_string()+port).unwrap();
 	server.set_nonblocking(true)?;
 	Ok(Server {
 	    server: server,

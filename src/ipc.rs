@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 extern crate file_lock;
 use file_lock::{FileLock, FileOptions};
 use std::io::{Read, Write, Seek, SeekFrom};
