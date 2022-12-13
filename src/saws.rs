@@ -4,6 +4,19 @@ use std::net::{TcpStream, TcpListener};
 use tungstenite::{WebSocket, accept};
 use tungstenite::Message;
 
+
+#[cfg(debug_assertions)]
+macro_rules! dbgprint {
+    ($( $args:expr ),*) => { println!($( $args),* ) }
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! dbgprint {
+    ($( $args:expr ),*) => { }
+}
+
+
+
 pub type ConnId = String; // TODO: change to ID from browser
 
 pub struct Conn {
@@ -39,7 +52,7 @@ impl Conn {
 	loop {
 	    match self.websocket.read_message() {
 		Ok(Message::Text(s)) => {
-		    println!("<- {}", &s);
+		    dbgprint!("<- {}", &s);
 		    msgs.push(s);
 		}
 		Ok(Message::Close(_)) => {
@@ -63,7 +76,7 @@ impl Conn {
     }
 
     pub fn send_msg(&mut self, msg: String) {
-	println!("-> {}", &msg);
+	dbgprint!("-> {}", &msg);
 	let res = self.websocket.write_message(Message::Text(msg));
 	if let Err(e) = res {
 	    println!("Warning: write_message returned an Err {}", e);

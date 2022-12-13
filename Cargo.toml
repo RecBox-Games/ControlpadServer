@@ -27,8 +27,3 @@ path = "src/test_client.rs"
 [[bin]]
 name = "target"
 path = "src/test_target.rs"
-
-[[bin]]
-name = "fl"
-path = "src/fl_test.rs"
-

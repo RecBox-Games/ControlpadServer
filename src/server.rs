@@ -29,12 +29,8 @@ fn read_msgs_for_client(id: saws::ConnId) -> Result<Vec<String>> {
     if msgs_string.len() == 0 {
 	return Ok(vec![]);
     }
-    println!("qqqqqq {}", &msgs_string);
     let mut parts = msgs_string.split(str::from_utf8(&[0])?).collect::<Vec<&str>>();
     parts.pop(); // there will be nothing after last null byte
-    if parts.len() != 0{
-	println!("]] {:?}", parts);
-    }
     for p in &parts {
 	ret.push(String::from(*p));
     }
@@ -48,7 +44,6 @@ fn write_msgs_from_client(id: saws::ConnId, msgs: Vec<String>) -> Result<()> {
 	s += str::from_utf8(&[0])?;
     }
     let ipc_name = id + "_in";
-    println!("--- {}", &s);
     ipc::write(&ipc_name, &s)?;
     Ok(())
 }
@@ -108,7 +103,6 @@ impl CPServer {
 	for c in &mut self.conns {
 	    let msgs = c.get_recved_msgs();
 	    if msgs.len() != 0 {
-		println!("got {:?} from {}", msgs, c.id());
 		write_msgs_from_client(c.id(), msgs)
 		    .expect("Failure writing ipc to target");
 	    }

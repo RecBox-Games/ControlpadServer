@@ -14,11 +14,11 @@ ws.onopen = (event) => {
     ws.send("msg A");
     ws.send("msg B");
     
-    /*setTimeout(() => ws.send("Hey now"), 1000);
-    setTimeout(() => ws.send("brown cow"), 1000);
-    setTimeout(() => ws.send("ab"), 1000);
-    setTimeout(() => ws.send("cd goldfish"), 1000);
-    setTimeout(() => ws.send("lmno goldfish"), 1000);
-    setTimeout(() => ws.send("osmr"), 1000);
-    setTimeout(() => ws.send("Ok I'm Done."), 1000);*/
+    setTimeout(() => ws.send("Hey now"), 1000);
+    setTimeout(() => ws.send("brown cow"), 2000);
+    setTimeout(() => ws.send("ab"), 3000);
+    setTimeout(() => ws.send("cd goldfish"), 4000);
+    setTimeout(() => ws.send("lmno goldfish"), 5000);
+    setTimeout(() => ws.send("osmr"), 6000);
+    setTimeout(() => ws.send("Ok I'm Done."), 7000);
 }

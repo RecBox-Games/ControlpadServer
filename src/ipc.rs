@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 extern crate file_lock;
-use file_lock::{FileLock, FileOptions};
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::path::Path;
+use std::fs::File;
 
-use crate::systemlock::*;
+use crate::systemlock::Locked;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -15,23 +15,19 @@ const IPC_PATH: &str = "/home/requin/ipc/";
 /* Atomically append to the IPC object with *name*.
  */
 pub fn write(name: &str, data: &str) -> Result<()> {
-    let lock = Locked::new("ipc")?;
+    let lock = Locked::new(name)?;
     let path = format!("{}{}", IPC_PATH, name);
-    let mut fl: FileLock;
     if Path::new(&path).exists() {
-	let options: FileOptions = FileOptions::new().write(true);
-	fl = FileLock::lock(&path, true, options)?;
-	fl.file.seek(SeekFrom::Start(0))?;
-	fl.file.write_all(&[1 as u8])?;
-	fl.file.seek(SeekFrom::End(0))?;
-	fl.file.write_all(data.as_bytes())?;
+	let mut f = File::options().write(true).open(&path)?;
+	f.seek(SeekFrom::Start(0))?;
+	f.write_all(&[1 as u8])?;
+	f.seek(SeekFrom::End(0))?;
+	f.write_all(data.as_bytes())?;
     } else {
-	let options: FileOptions = FileOptions::new().create(true).write(true);
-	fl = FileLock::lock(&path, true, options)?;
-	fl.file.write_all(&[1 as u8])?;
-	fl.file.write_all(data.as_bytes())?;
+	let mut f = File::options().create(true).write(true).open(&path)?;
+	f.write_all(&[1 as u8])?;
+	f.write_all(data.as_bytes())?;
     }
-    fl.unlock()?;
     lock.unlock()?;
     Ok(())
 }
@@ -40,18 +36,16 @@ pub fn write(name: &str, data: &str) -> Result<()> {
 /* Atomically read the contents of the IPC object with *name*.
  */
 pub fn read(name: &str) -> Result<String> {
-    let lock = Locked::new("ipc")?;
+    let lock = Locked::new(name)?;
     let path = format!("{}{}",IPC_PATH, name);
     if ! Path::new(&path).exists() {
 	return Ok(String::new());
     }
-    let options: FileOptions = FileOptions::new().read(true).write(true);
-    let mut fl = FileLock::lock(&path, true, options)?;
+    let mut f = File::options().read(true).write(true).open(&path)?;    
     let mut s = String::new();
-    fl.file.write_all(&[0 as u8])?;
-    fl.file.read_to_string(&mut s)?;
-    fl.unlock()?;
-    lock.unlock();
+    f.write_all(&[0 as u8])?;
+    f.read_to_string(&mut s)?;
+    lock.unlock()?;
     Ok(s)
 }
 
@@ -60,19 +54,16 @@ pub fn read(name: &str) -> Result<String> {
  * as a read.
  */
 pub fn consume(name: &str) -> Result<String> {
-    let lock = Locked::new("ipc")?;
+    let lock = Locked::new(name)?;
     let path = format!("{}{}",IPC_PATH, name);
     if ! Path::new(&path).exists() {
 	return Ok(String::new());
     }
-    let options: FileOptions = FileOptions::new().read(true).write(true);
-    let mut fl = FileLock::lock(&path, true, options)?;
+    let mut f = File::options().read(true).write(true).open(&path)?;    
     let mut s = String::new();
-    fl.file.seek(SeekFrom::Start(1))?;
-    fl.file.read_to_string(&mut s)?;
-    //fl.file.set_len(0)?;
+    f.seek(SeekFrom::Start(1))?;
+    f.read_to_string(&mut s)?;
     std::fs::remove_file(&path)?;
-    fl.unlock()?;
     lock.unlock()?;
     Ok(s)
 }
@@ -82,19 +73,17 @@ pub fn consume(name: &str) -> Result<String> {
  * read (or consume).
  */
 pub fn has_new(name: &str) -> Result<bool> {
-    let lock = Locked::new("ipc")?;
+    let lock = Locked::new(name)?;
     let path = format!("{}{}",IPC_PATH, name);
     if ! Path::new(&path).exists() {
 	return Ok(false);
     }
-    let options: FileOptions = FileOptions::new().read(true).write(false).create(false);
-    let mut fl = FileLock::lock(&path, true, options)?;
-    if fl.file.metadata().unwrap().len() == 0 {
+    let mut f = File::options().read(true).write(false).create(false).open(&path)?;    
+    if f.metadata().unwrap().len() == 0 {
 	return Ok(false);
     }
     let mut buf = [0 as u8];
-    fl.file.read_exact(&mut buf)?;
-    fl.unlock()?;
+    f.read_exact(&mut buf)?;
     lock.unlock()?;
     Ok(buf[0] != 0)
 }

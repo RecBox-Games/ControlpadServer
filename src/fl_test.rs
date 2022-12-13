@@ -6,11 +6,11 @@ use rand::Rng;
 
 
 fn write_to_foo(s: &str) {
-    //let lock = Locked::new("q").unwrap(); {
+    let lock = Locked::new("q").unwrap(); {
 	let mut f = File::options().create(true).append(true).open("foo.txt").unwrap();
-    //std::thread::sleep(std::time::Duration::from_millis(1000));
+	std::thread::sleep(std::time::Duration::from_millis(1000));
 	f.write_all(s.as_bytes()).unwrap();
-//} lock.unlock().unwrap();
+    } lock.unlock().unwrap();
 }
 
 fn main() {
