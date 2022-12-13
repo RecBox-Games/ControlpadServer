@@ -2,8 +2,9 @@
 
 use std::net::{TcpStream, TcpListener};
 use tungstenite::{WebSocket, accept};
-use tungstenite::Message;
-
+use tungstenite;
+use crate::util::Result;
+    
 
 #[cfg(debug_assertions)]
 macro_rules! dbgprint {
@@ -16,57 +17,75 @@ macro_rules! dbgprint {
 }
 
 
+pub enum Msg {
+    Text(String),
+    Bytes(Vec<u8>),
+}
+
 
 pub type ConnId = String; // TODO: change to ID from browser
 
 pub struct Conn {
     websocket: WebSocket<TcpStream>,
-    id: String,
+    addr: String,
     dead: bool,
 }
 
 impl Conn {
 
-    pub fn new(mut ws: WebSocket<TcpStream>, addr: String) -> Result<Self, std::io::Error> {
+    pub fn new(mut ws: WebSocket<TcpStream>, addr: String) -> Result<Self> {
 	ws.get_mut().set_nonblocking(true)?;
 	Ok(Conn {
 	    websocket: ws,
-	    id: addr,
+	    addr: addr,
 	    dead: false,
 	})
     }
 
-    pub fn id(&self) -> ConnId {
-	self.id.clone()
+    pub fn addr(&self) -> ConnId {
+	self.addr.clone()
     }
 
     pub fn is_dead(&self) -> bool {
 	self.dead
     }
 
-    pub fn get_recved_msgs(&mut self) -> Vec<String> {
+    pub fn get_recved_msgs(&mut self) -> Vec<Msg> {
 	if self.dead {
 	    return vec![];
 	}
-	let mut msgs: Vec<String> = vec![];
+	let mut msgs: Vec<Msg> = vec![];
 	loop {
 	    match self.websocket.read_message() {
-		Ok(Message::Text(s)) => {
-		    dbgprint!("<- {}", &s);
-		    msgs.push(s);
+		Ok(m) => {
+		    match m {
+			tungstenite::Message::Close(_) => {
+			    self.dead = true;
+			    break;
+			}
+			tungstenite::Message::Binary(v) => {
+			    dbgprint!("<- {}: {:?}", &self.addr, &v);
+			    msgs.push(Msg::Bytes(v));
+			}
+			tungstenite::Message::Text(s) => {
+			    dbgprint!("<- {}: '{}'", &self.addr, &s);
+			    msgs.push(Msg::Text(s));
+			}
+			other => {
+			    println!("Warning: Conn {} recved non-string non-binary \
+				      message: {:?}",
+				     self.addr, other);
+			}
+		    }
 		}
-		Ok(Message::Close(_)) => {
-		    self.dead = true;
-		    break;
-		}
-		Ok(other) => {
-		    println!("Warning: Conn {} recved non-string message: {:?}", self.id, other);
-		}
-		Err(tungstenite::error::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+		// no more messages available case
+		Err(tungstenite::error::Error::Io(e))
+		    if e.kind() == std::io::ErrorKind::WouldBlock => {
 		    break;
 		}
 		Err(e) => {
-		    println!("Warning: Conn {} is dying because: <{}>", self.id, e); // TODO: die
+		    println!("Warning: Conn {} is dying because: <{}>",
+			     self.addr, e);
 		    self.dead = true;
 		    break;
 		}
@@ -75,9 +94,18 @@ impl Conn {
 	msgs
     }
 
-    pub fn send_msg(&mut self, msg: String) {
-	dbgprint!("-> {}", &msg);
-	let res = self.websocket.write_message(Message::Text(msg));
+    pub fn send_msg(&mut self, msg: Msg) {
+	let res;
+	match msg {
+	    Msg::Text(t) => {
+		//dbgprint!("-> {}: '{}'", &self.id, &t);
+		res = self.websocket.write_message(tungstenite::Message::Text(t));
+	    }
+	    Msg::Bytes(b) => {
+		//dbgprint!("-> {}: {:?}", &self.id, &b);
+		res = self.websocket.write_message(tungstenite::Message::Binary(b));
+	    }
+	}
 	if let Err(e) = res {
 	    println!("Warning: write_message returned an Err {}", e);
 	}
@@ -90,7 +118,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(port: &str) -> Result<Self, std::io::Error> {
+    pub fn new(port: &str) -> Result<Self> {
 	let server = TcpListener::bind("0.0.0.0:".to_string()+port).unwrap();
 	server.set_nonblocking(true)?;
 	Ok(Server {

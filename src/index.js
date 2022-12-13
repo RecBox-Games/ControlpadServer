@@ -1,9 +1,20 @@
 ws = new WebSocket("ws://192.168.0.100:50079");
 console.log(ws);
 
+const url_arg_str = window.location.search;
+const url_params = new URLSearchParams(url_arg_str);
+const subid = Number(url_params.get('subid'));
+console.log(subid);
 
 
 ws.onopen = (event) => {
+
+    if (subid) {
+	var byte_array = new Uint8Array(1);
+	byte_array[0] = subid % 256;
+	ws.send(byte_array);
+    }
+    
     ws.addEventListener('message', (event) => {
 	console.log('Msg Frm Srv: ', event.data);
     });
