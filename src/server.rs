@@ -147,6 +147,7 @@ impl CPServer {
 	    let msgs = read_msgs_for_client(c.id())
 		.expect("Failure reading ipc from target");
 	    for m in msgs {
+		dbgprint!("-> {}: '{}'", c.id(), m);
 		c.conn.send_msg(Msg::Text(m));
 	    }
 	}
@@ -161,9 +162,11 @@ impl CPServer {
 	    for m in msgs {
 		match m {
 		    Msg::Text(t) => {
+			dbgprint!("<- {}: '{}'", &c.id(), &t);
 			tmsgs.push(t);
 		    }
 		    Msg::Bytes(v) => {
+			dbgprint!("<- {}: {:?}", &c.id(), &v);
 			if v.len() > 0 {
 			    subid = Some(v[0]);
 			} 
@@ -179,6 +182,7 @@ impl CPServer {
 	    }
 	    
 	    if tmsgs.len() != 0 {
+		
 		write_msgs_from_client(c.id(), tmsgs)
 		    .expect("Failure writing ipc to target");
 	    }

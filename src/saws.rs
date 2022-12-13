@@ -6,17 +6,6 @@ use tungstenite;
 use crate::util::Result;
     
 
-#[cfg(debug_assertions)]
-macro_rules! dbgprint {
-    ($( $args:expr ),*) => { println!($( $args),* ) }
-}
-
-#[cfg(not(debug_assertions))]
-macro_rules! dbgprint {
-    ($( $args:expr ),*) => { }
-}
-
-
 pub enum Msg {
     Text(String),
     Bytes(Vec<u8>),
@@ -64,11 +53,9 @@ impl Conn {
 			    break;
 			}
 			tungstenite::Message::Binary(v) => {
-			    dbgprint!("<- {}: {:?}", &self.addr, &v);
 			    msgs.push(Msg::Bytes(v));
 			}
 			tungstenite::Message::Text(s) => {
-			    dbgprint!("<- {}: '{}'", &self.addr, &s);
 			    msgs.push(Msg::Text(s));
 			}
 			other => {
@@ -98,11 +85,9 @@ impl Conn {
 	let res;
 	match msg {
 	    Msg::Text(t) => {
-		//dbgprint!("-> {}: '{}'", &self.id, &t);
 		res = self.websocket.write_message(tungstenite::Message::Text(t));
 	    }
 	    Msg::Bytes(b) => {
-		//dbgprint!("-> {}: {:?}", &self.id, &b);
 		res = self.websocket.write_message(tungstenite::Message::Binary(b));
 	    }
 	}
