@@ -39,7 +39,7 @@ impl Conn {
 	loop {
 	    match self.websocket.read_message() {
 		Ok(Message::Text(s)) => {
-		    println!("Text {}", &s);
+		    println!("<- {}", &s);
 		    msgs.push(s);
 		}
 		Ok(Message::Close(_)) => {
@@ -63,9 +63,10 @@ impl Conn {
     }
 
     pub fn send_msg(&mut self, msg: String) {
+	println!("-> {}", &msg);
 	let res = self.websocket.write_message(Message::Text(msg));
 	if let Err(e) = res {
-	    dbg!("Warning: write_message returned an Err {}", e);
+	    println!("Warning: write_message returned an Err {}", e);
 	}
     }
 

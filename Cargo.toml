@@ -10,6 +10,7 @@ default-run = "server"
 file-lock="2.1.6"
 ggez="0.7.0"
 tungstenite="0.18.0"
+rand="0.8.5"
 
 [lib]
 name = "controlpads"
@@ -26,4 +27,8 @@ path = "src/test_client.rs"
 [[bin]]
 name = "target"
 path = "src/test_target.rs"
+
+[[bin]]
+name = "fl"
+path = "src/fl_test.rs"
 

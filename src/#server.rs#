@@ -1,6 +1,5 @@
 mod ipc;
 mod saws;
-mod systemlock;
 
 use std::str;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

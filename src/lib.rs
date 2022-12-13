@@ -1,5 +1,6 @@
 // atomic named pipe
 mod ipc;
+mod systemlock;
 use std::str;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -8,14 +9,18 @@ pub type ClientHandle = String;
 
 /// Returns true if and only if a client has been added, dropped, or refreshed
 pub fn clients_changed() -> Result<bool> {
-    Ok(ipc::has_new("cp_clients")?)
+    Ok(
+	ipc::has_new("cp_clients")
+	    .unwrap_or_else(|e| panic!("Failed to check has_new: {}", e))
+    )
 }
 
 /// Returns a vector of ClientHandles corresponding to the control pad clients
 /// currently connected to the local control pad server
 pub fn get_client_handles() -> Result<Vec<ClientHandle>> {
     let mut ret: Vec<ClientHandle> = Vec::new();
-    let clients_string = ipc::read("cp_clients")?;
+    let clients_string = ipc::read("cp_clients")
+	.unwrap_or_else(|e| panic!("Failed to read: {}", e));
     let parts = clients_string.split(str::from_utf8(&[0])?);
     for p in parts {
 	ret.push(String::from(p));
@@ -27,8 +32,9 @@ pub fn get_client_handles() -> Result<Vec<ClientHandle>> {
 pub fn send_message(client: &ClientHandle, msg: &str) -> Result<()> {
     let ipc_name = client.to_string() + "_out";
     println!("sent {}", msg);
-    ipc::write(&ipc_name, msg)?;
-    ipc::write(&ipc_name, str::from_utf8(&[0])?)?;
+    let delin_msg = msg.to_string() + str::from_utf8(&[0])?;
+    ipc::write(&ipc_name, &delin_msg)
+	.unwrap_or_else(|e| panic!("Failed to write: {}", e));
     Ok(())
 }
 
@@ -38,10 +44,16 @@ pub fn send_message(client: &ClientHandle, msg: &str) -> Result<()> {
 pub fn get_messages(client: &ClientHandle) -> Result<Vec<String>> {
     let mut ret: Vec<String> = Vec::new();
     let ipc_name = client.to_string() + "_in";
-    let msgs_string = ipc::consume(&ipc_name)?;
-    let parts = &msgs_string.split(str::from_utf8(&[0])?).collect::<Vec<&str>>()[1..];
-    for p in parts {
-	println!("got {}", p);
+    let msgs_string = ipc::consume(&ipc_name)
+	.unwrap_or_else(|e| panic!("Failed to consume: {}", e));
+    if msgs_string.len() == 0 {
+	return Ok(vec![]);
+    }
+    println!("{}", msgs_string.replace(str::from_utf8(&[0])?, "0"));
+    let mut parts = msgs_string.split(str::from_utf8(&[0])?).collect::<Vec<&str>>();
+    parts.pop(); // there will be nothing after last null byte
+    for p in &parts {
+	//println!("got {}", p);
 	ret.push(String::from(*p));
     }
     Ok(ret)
