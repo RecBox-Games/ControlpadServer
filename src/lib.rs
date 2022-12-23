@@ -1,4 +1,3 @@
-// atomic named pipe
 mod ipc;
 mod systemlock;
 use std::str;
