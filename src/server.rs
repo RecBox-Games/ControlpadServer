@@ -203,6 +203,9 @@ impl CPServer {
 
 
 fn main() {
+    ipc::initialize()
+	.expect("Failure initializing ipc module");
+    
     let mut cpserver = CPServer::new("50079");
 
     loop {

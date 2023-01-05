@@ -12,6 +12,14 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const IPC_PATH: &str = "/home/requin/ipc/";
 
 
+pub fn initialize() -> Result<()> {
+    if !std::path::Path::new(IPC_PATH).exists() {
+	std::fs::create_dir(IPC_PATH)?;
+    }
+    // TODO: delete previous IPC data in the dir
+    Ok(())
+}
+
 /* Atomically append to the IPC object with *name*.
  */
 pub fn write(name: &str, data: &str) -> Result<()> {
