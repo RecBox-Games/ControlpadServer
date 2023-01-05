@@ -7,6 +7,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub type ClientHandle = String;
 
 /// Returns true if and only if a client has been added, dropped, or refreshed
+/// since the last call to get_client_handles
 pub fn clients_changed() -> Result<bool> {
     Ok(
 	ipc::has_new("cp_clients")
@@ -20,9 +21,14 @@ pub fn get_client_handles() -> Result<Vec<ClientHandle>> {
     let mut ret: Vec<ClientHandle> = Vec::new();
     let clients_string = ipc::read("cp_clients")
 	.unwrap_or_else(|e| panic!("Failed to read: {}", e));
-    let parts = clients_string.split(str::from_utf8(&[0])?);
-    for p in parts {
-	ret.push(String::from(p));
+    let mut parts = clients_string.split(str::from_utf8(&[0])?);
+    
+    while let Some(p) = parts.next() {
+	// don't take whatever is after the last null byte because nothing should be
+	// past the last null byte and we don't want to add an empty string
+	if p.len() != 0 {
+	    ret.push(String::from(p));
+	}
     }
     Ok(ret)
 }
