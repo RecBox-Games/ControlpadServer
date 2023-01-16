@@ -36,7 +36,7 @@ pub fn get_client_handles() -> Result<Vec<ClientHandle>> {
 /// Send an atomic message to the specified control pad client
 pub fn send_message(client: &ClientHandle, msg: &str) -> Result<()> {
     let ipc_name = client.to_string() + "_out";
-    println!("sent {}", msg);
+    //println!("sent {}", msg);
     let delin_msg = msg.to_string() + str::from_utf8(&[0])?;
     ipc::write(&ipc_name, &delin_msg)
 	.unwrap_or_else(|e| panic!("Failed to write: {}", e));
@@ -54,7 +54,7 @@ pub fn get_messages(client: &ClientHandle) -> Result<Vec<String>> {
     if msgs_string.len() == 0 {
 	return Ok(vec![]);
     }
-    println!("{}", msgs_string.replace(str::from_utf8(&[0])?, "0"));
+    //println!("{}", msgs_string.replace(str::from_utf8(&[0])?, "0"));
     let mut parts = msgs_string.split(str::from_utf8(&[0])?).collect::<Vec<&str>>();
     parts.pop(); // there will be nothing after last null byte
     for p in &parts {
