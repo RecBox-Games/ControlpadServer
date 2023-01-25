@@ -203,6 +203,10 @@ impl CPServer {
 
 
 fn main() {
+    if std::env::var("USER").unwrap().eq("root") {
+        println!("ERROR: You must not run control_pad_server as root");
+        std::process::exit(1);
+    }
     ipc::initialize()
 	.expect("Failure initializing ipc module");
     
