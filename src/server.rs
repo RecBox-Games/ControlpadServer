@@ -203,15 +203,22 @@ impl CPServer {
 
 
 fn main() {
+
+    // do not allow runnning as root
     if std::env::var("USER").unwrap().eq("root") {
         println!("ERROR: You must not run control_pad_server as root");
         std::process::exit(1);
     }
+    
+    // create expected directories for various modules
     ipc::initialize()
 	.expect("Failure initializing ipc module");
+    systemlock::initialize()
+	.expect("Failure initializing systemlock module");
+    // TODO: create other expected dirs via initialize functions
     
+    // start server
     let mut cpserver = CPServer::new("50079");
-
     loop {
 	cpserver.accept_new_clients();
 	cpserver.send_messages_to_clients();
