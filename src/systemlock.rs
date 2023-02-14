@@ -14,9 +14,9 @@ were fixed by wrapping that same code in one of these systemlocks)
 */
 
 //================================= Constants ==================================
-#[cfg(debug_assertions)]
-const LOCK_DIR: &str = "/var/lock";
 #[cfg(not(debug_assertions))]
+const LOCK_DIR: &str = "/var/lock";
+#[cfg(debug_assertions)]
 const LOCK_DIR: &str = "/home/requin/lock";
 //
 const LOCK_PREFIX: &str = "/sl_";
