@@ -72,14 +72,15 @@ pub fn consume(name: &str) -> Result<String> {
     let lock = Locked::new(name)?;
     let path = format!("{}{}",IPC_PATH, name);
     if ! Path::new(&path).exists() {
-        //#[cfg(debug_assertions)] println!("no file to consume");
-	return Ok(String::new());
+        return Ok(String::new());
     }
     let mut f = File::options().read(true).write(true).open(&path)?;    
     let mut s = String::new();
     f.seek(SeekFrom::Start(1))?;
     f.read_to_string(&mut s)?;
     std::fs::remove_file(&path)?;
+    let mut f_new = File::options().create(true).write(true).open(&path)?;
+    f_new.write_all(&[1 as u8])?;
     lock.unlock()?;
     Ok(s)
 }
