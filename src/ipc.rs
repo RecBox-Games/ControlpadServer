@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-extern crate file_lock;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::path::Path;
 use std::fs::File;
@@ -9,7 +8,10 @@ use crate::systemlock::Locked;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+#[cfg(target_os = "linux")]
 const IPC_PATH: &str = "/home/requin/ipc/";
+#[cfg(target_os = "windows")]
+const IPC_PATH: &str = "C:\\Windows\\ipc\\";
 
 
 pub fn initialize() -> Result<()> {

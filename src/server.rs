@@ -204,11 +204,14 @@ impl CPServer {
 
 fn main() {
 
-    // do not allow runnning as root
-    if std::env::var("USER").unwrap().eq("root") {
-        println!("ERROR: You must not run control_pad_server as root");
-        std::process::exit(1);
+    // do not allow runnning as root (this check only works on windows)
+    if let Ok(env_var) = std::env::var("USER") {
+        if env_var.eq("root") {
+            println!("ERROR: You must not run control_pad_server as root");
+            std::process::exit(1);
+        }
     }
+    // TODO: do we need to do an admin check for Windows?^^^
     
     // create expected directories for various modules
     ipc::initialize()

@@ -7,7 +7,7 @@ default-run = "server"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-file-lock="2.1.6"
+fs2="*"
 ggez="0.7.0"
 tungstenite="0.18.0"
 rand="0.8.5"

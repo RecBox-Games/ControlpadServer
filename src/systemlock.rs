@@ -1,6 +1,7 @@
 //==================================<===|===>===================================
-extern crate file_lock;
-use file_lock::{FileLock, FileOptions};
+extern crate fs2;
+use fs2::FileExt;
+use std::fs::{OpenOptions, File};
 use std::error::Error;
 
 //=================================== Notes ====================================
@@ -14,9 +15,15 @@ were fixed by wrapping that same code in one of these systemlocks)
 */
 
 //================================= Constants ==================================
+#[cfg(target_os = "linux")]
 const LOCK_DIR: &str = "/var/lock";
+#[cfg(target_os = "windows")]
+const LOCK_DIR: &str = "C:\\Windows\\Temp";
 //
+#[cfg(target_os = "linux")]
 const LOCK_PREFIX: &str = "/sl_";
+#[cfg(target_os = "windows")]
+const LOCK_PREFIX: &str = "\\sl_";
     
 //================================== Helpers ===================================
 #[allow(dead_code)]
@@ -32,18 +39,17 @@ pub fn initialize() -> Result<(), Box<dyn Error>> {
 //================================== Locked ====================================
 // one use lock
 pub struct Locked {
-    lock: FileLock,
+    lock: File,
 }
 impl Locked {
     pub fn new(s: &str) -> Result<Self, Box<dyn Error>> {
-        let options = FileOptions::new().write(true).create(true).append(true);
-	let path = String::from(LOCK_DIR) + LOCK_PREFIX + s;
-        Ok(Locked {
-            lock: FileLock::lock(&path, true /* should block */, options)?,
-        })
+        let path = String::from(LOCK_DIR) + LOCK_PREFIX + s;
+        let file = OpenOptions::new().read(true).write(true).create(true).open(&path)?;
+        file.lock_exclusive()?;
+        Ok(Locked { lock: file })
     }
 
-    pub fn unlock(self) -> Result<(), std::io::Error>{
+    pub fn unlock(self) -> Result<(), std::io::Error> {
         self.lock.unlock()
     }
 
