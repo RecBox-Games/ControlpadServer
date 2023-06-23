@@ -1,16 +1,13 @@
 // Simple A** Web Sockets
-
 use std::net::{TcpStream, TcpListener};
 use tungstenite::{WebSocket, accept};
 use tungstenite;
 use crate::util::Result;
-    
 
 pub enum Msg {
     Text(String),
     Bytes(Vec<u8>),
 }
-
 
 pub type ConnId = String; // TODO: change to ID from browser
 
@@ -21,9 +18,10 @@ pub struct Conn {
 }
 
 impl Conn {
-
     pub fn new(mut ws: WebSocket<TcpStream>, addr: String) -> Result<Self> {
-	ws.get_mut().set_nonblocking(true)?;
+	//ws.get_mut().set_nonblocking(true)?;
+        
+        // TODO: increase timeout
 	Ok(Conn {
 	    websocket: ws,
 	    addr: addr,
@@ -95,7 +93,6 @@ impl Conn {
 	    println!("Warning: write_message returned an Err {}", e);
 	}
     }
-
 }
 
 pub struct Server {
@@ -116,6 +113,9 @@ impl Server {
 	loop {
 	    match self.server.accept() {
 		Ok((stream, addr)) => {
+                    if let Err(e) = stream.set_nonblocking(true) {
+                        println!("Failed to set stream to nonblocking before accept(): {}", e);
+                    }
 		    match accept(stream) {
 			Ok(websocket) => {
 			    match Conn::new(websocket, addr.to_string()) {
@@ -128,7 +128,7 @@ impl Server {
 			    }
 			}
 			Err(e) => {
-			    println!("Warning: Error when trying to validate a connection: {}", e);
+			    println!("Warning: Error when trying to validate a connection (accept stream): {}", e);
 			}
 		    }
 		}

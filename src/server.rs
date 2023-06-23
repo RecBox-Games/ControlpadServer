@@ -216,6 +216,8 @@ fn main() {
     // create expected directories for various modules
     ipc::initialize()
 	.expect("Failure initializing ipc module");
+    // NOTE: if you get a failure here in windows^ you probably can just go
+    // open C:\Windows\Temp and give yourself permission
     systemlock::initialize()
 	.expect("Failure initializing systemlock module");
     // TODO: create other expected dirs via initialize functions
