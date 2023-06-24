@@ -100,7 +100,7 @@ pub fn has_new(name: &str) -> Result<bool> {
 	return Ok(false);
     }
     let mut f = File::options().read(true).write(false).create(false).open(&path)?;    
-    if f.metadata().unwrap().len() == 0 {
+    if f.metadata()?.len() == 0 {
 	return Ok(false);
     }
     let mut buf = [0 as u8];
