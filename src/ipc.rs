@@ -27,21 +27,28 @@ pub fn initialize() -> Result<()> {
  */
 pub fn write(name: &str, data: &str) -> Result<()> {
     //#[cfg(debug_assertions)] println!("ipc write: name: {}, data: {}", name, data);
+    println!("a");
     let lock = Locked::new(name)?;
     let path = format!("{}{}", IPC_PATH, name);
     if Path::new(&path).exists() {
+        println!("b1");
         //#[cfg(debug_assertions)] println!("existing file");
 	let mut f = File::options().write(true).open(&path)?;
+        println!("b2");
 	f.seek(SeekFrom::Start(0))?;
 	f.write_all(&[1 as u8])?;
+        println!("b3");
 	f.seek(SeekFrom::End(0))?;
 	f.write_all(data.as_bytes())?;
     } else {
+        println!("c1");
         //#[cfg(debug_assertions)] println!("new file");
 	let mut f = File::options().create(true).write(true).open(&path)?;
 	f.write_all(&[1 as u8])?;
+        println!("c2");
 	f.write_all(data.as_bytes())?;
     }
+    println!("d");
     lock.unlock()?;
     Ok(())
 }
