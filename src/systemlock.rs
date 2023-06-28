@@ -44,7 +44,11 @@ pub struct Locked {
 impl Locked {
     pub fn new(s: &str) -> Result<Self, Box<dyn Error>> {
         let path = String::from(LOCK_DIR) + LOCK_PREFIX + s;
-        let file = OpenOptions::new().read(true).write(true).create(true).open(&path)?;
+        let file = OpenOptions::new().read(true).write(true).create(true).open(&path)
+            .unwrap_or_else(|e| {
+                panic!("Fatal Error: Failed to open {}: {}\n(Try changing \
+                        permissions on {})", &path, e, LOCK_DIR);
+            });
         file.lock_exclusive()?;
         Ok(Locked { lock: file })
     }
