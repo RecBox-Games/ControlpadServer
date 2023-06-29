@@ -11,7 +11,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[cfg(target_os = "linux")]
 const IPC_PATH: &str = "/home/requin/ipc/";
 #[cfg(target_os = "windows")]
-const IPC_PATH: &str = "C:\\Windows\\ipc\\";
+const IPC_PATH: &str = "C:\\Windows\\Temp\\ipc\\";
 
 
 pub fn initialize() -> Result<()> {
