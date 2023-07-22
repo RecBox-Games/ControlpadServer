@@ -11,16 +11,24 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[cfg(target_os = "linux")]
 const IPC_PATH: &str = "/home/requin/ipc/";
 #[cfg(target_os = "windows")]
-const IPC_PATH: &str = "C:\\Windows\\Temp\\ipc\\";
+const IPC_PATH: &str = "C:\\Users\\gamenite\\";
 
 
-pub fn initialize() -> Result<()> {
+pub fn initialize() {
     //#[cfg(debug_assertions)] println!("ipc initialize");
     if !std::path::Path::new(IPC_PATH).exists() {
-	std::fs::create_dir(IPC_PATH)?;
+	std::fs::create_dir(IPC_PATH)
+            .unwrap_or_else(|e| {
+                let help_msg = format!(
+                    "Try creating {} yourself and giving yourself permission to \
+                     make files within that directory",
+                    IPC_PATH
+                );
+                panic!("Fatal Error: Could not create {}: {}\n{}",
+                       IPC_PATH, e, help_msg);
+            });
     }
     // TODO: delete previous IPC data in the dir
-    Ok(())
 }
 
 /* Atomically append to the IPC object with *name*.

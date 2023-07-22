@@ -18,7 +18,7 @@ were fixed by wrapping that same code in one of these systemlocks)
 #[cfg(target_os = "linux")]
 const LOCK_DIR: &str = "/var/lock";
 #[cfg(target_os = "windows")]
-const LOCK_DIR: &str = "C:\\Windows\\Temp";
+const LOCK_DIR: &str = "C:\\Users\\gamenite";
 //
 #[cfg(target_os = "linux")]
 const LOCK_PREFIX: &str = "/sl_";
@@ -27,13 +27,21 @@ const LOCK_PREFIX: &str = "\\sl_";
     
 //================================== Helpers ===================================
 #[allow(dead_code)]
-pub fn initialize() -> Result<(), Box<dyn Error>> {
+pub fn initialize() {
     //#[cfg(debug_assertions)] println!("locked initialize");
     if !std::path::Path::new(LOCK_DIR).exists() {
-	std::fs::create_dir(LOCK_DIR)?;
+	std::fs::create_dir(LOCK_DIR)
+            .unwrap_or_else(|e| {
+                let help_msg = format!(
+                    "Try creating {} yourself and giving yourself permission to \
+                     make files within that directory",
+                    LOCK_DIR
+                );
+                panic!("Fatal Error: Could not create {}: {}\n{}",
+                       LOCK_DIR, e, help_msg);
+            });
     }
     // TODO: delete previous Lock data in the dir
-    Ok(())
 }
 
 //================================== Locked ====================================
