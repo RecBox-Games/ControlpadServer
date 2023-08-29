@@ -223,6 +223,7 @@ fn main() {
 	cpserver.accept_new_clients();
 	cpserver.send_messages_to_clients();
 	cpserver.recv_messages_for_target();
-	cpserver.clear_dead_clients();	
+	cpserver.clear_dead_clients();
+	std::thread::sleep(std::time::Duration::from_micros(1500));
     }
 }
