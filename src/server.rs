@@ -116,6 +116,8 @@ impl CPServer {
 	}
     }
 
+    // create websockets based on inbound websocket creation requests and
+    // update the cp_clients ipc object with the list of currently connected clients
     pub fn accept_new_clients(&mut self) {
 	let new_conns = self.server.new_connections();
 	if new_conns.len() == 0 {
@@ -129,7 +131,9 @@ impl CPServer {
 	dbgprint!("clients: {:?}", self.clients.iter()
 		  .map(|x| x.id()).collect::<Vec<String>>());
     }
-    
+
+    // For websockets that have died, remove the CPClient from our list and
+    // update the cp_clients ipc object to reflect that
     pub fn clear_dead_clients(&mut self) {
 	let old_len = self.clients.len();
 	self.clients.retain(|x| ! x.is_dead());
@@ -142,6 +146,8 @@ impl CPServer {
 	    .expect("Failure rewriting cp_clients");
     }
 
+    // for each "_out" ipc object that has new messages, send those messages
+    // over websocket to the associated client
     pub fn send_messages_to_clients(&mut self) {
 	for c in &mut self.clients {
 	    let msgs = read_msgs_for_client(c.id())
@@ -153,6 +159,8 @@ impl CPServer {
 	}
     }
 
+    // for each websocket that had new messages, write those messages to the
+    // associated  "_in" ipc object
     pub fn recv_messages_for_target(&mut self) {
 	let mut new_subids = false;
 	for c in &mut self.clients {
@@ -195,6 +203,13 @@ impl CPServer {
 		.expect("Failure rewriting cp_clients");
 	}	
     }
+
+    // check if "reload" ipc object has changed if so, consume it, and refresh
+    // each client by sending [0x1] on the websocket associated with that
+    // client
+    pub fn send_reloads_to_clients(&mut self) {
+    }
+    
 }
 
 // ^^^ Control Pad Server ^^^
