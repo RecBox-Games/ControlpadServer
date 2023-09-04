@@ -208,8 +208,18 @@ impl CPServer {
     // each client by sending [0x1] on the websocket associated with that
     // client
     pub fn send_reloads_to_clients(&mut self) {
+	// read here
+	let ipc_name = id;
+	let message = ipc::consume(&ipc_name)?;
+	// if what is read == refresh
+	if(message == "refresh") {
+	    // go through clients and send vec![0x1]
+	    for c in &mut self.clients {
+		c.conn.send_msg(Msg::Bytes(vec![0x1]));
+		
+	    }
+	}
     }
-    
 }
 
 // ^^^ Control Pad Server ^^^
