@@ -209,10 +209,14 @@ impl CPServer {
     // client
     pub fn send_reloads_to_clients(&mut self) {
 	// read here
-	let ipc_name = id;
-	let message = ipc::consume(&ipc_name)?;
-	// if what is read == refresh
-	if(message == "refresh") {
+//	let ipc_name = "controls" + "_out";
+	let ipc_name = format!("{}{}", "controls", "_out");
+	let message = ipc::consume(&ipc_name).unwrap_or_else(|e| {
+	    println!("Unable to consume messge {}",e);
+	    e.to_string()
+	});
+	// if what is read == reload
+	if message == "reload" {
 	    // go through clients and send vec![0x1]
 	    for c in &mut self.clients {
 		c.conn.send_msg(Msg::Bytes(vec![0x1]));
@@ -249,6 +253,7 @@ fn main() {
 	cpserver.send_messages_to_clients();
 	cpserver.recv_messages_for_target();
 	cpserver.clear_dead_clients();
+	cpserver.send_reloads_to_clients();
 	std::thread::sleep(std::time::Duration::from_micros(1500));
     }
 }
