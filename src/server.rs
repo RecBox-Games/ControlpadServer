@@ -207,20 +207,33 @@ impl CPServer {
     // check if "reload" ipc object has changed if so, consume it, and refresh
     // each client by sending [0x1] on the websocket associated with that
     // client
-    pub fn send_reloads_to_clients(&mut self) {
+    pub fn send_reloads_to_clients(&mut self)  {
 	// read here
-//	let ipc_name = "controls" + "_out";
-	let ipc_name = format!("{}{}", "controls", "_out");
-	let message = ipc::consume(&ipc_name).unwrap_or_else(|e| {
-	    println!("Unable to consume messge {}",e);
+	let ipc_name = "rpc_out";
+	let rpc_contents = ipc::consume(&ipc_name).unwrap_or_else(|e| {
+	    println!("Unable to consume message {}",e);
 	    e.to_string()
 	});
-	// if what is read == reload
-	if message == "reload" {
-	    // go through clients and send vec![0x1]
-	    for c in &mut self.clients {
-		c.conn.send_msg(Msg::Bytes(vec![0x1]));
-		
+
+	if rpc_contents.len() == 0 {
+	    return 
+	}
+
+	let mut messages = rpc_contents.split(str::from_utf8(&[0]).unwrap_or_else( |e| {
+	    println!("Unable to split message {}",e);
+	    "error"
+	})).collect::<Vec<&str>>();
+	messages.pop(); // there will be nothing after last null byte
+	
+	// iterate through each message
+	for message in messages {
+	    // if what is read == reload
+	    if message == "reload" {
+		// go through clients and send vec![0x1]
+		for c in &mut self.clients {
+		    c.conn.send_msg(Msg::Bytes(vec![0x1]));
+		    println!("message sent!");
+		}
 	    }
 	}
     }
@@ -247,7 +260,7 @@ fn main() {
     systemlock::initialize();
     
     // start server
-    let mut cpserver = CPServer::new("50079");
+    let mut cpserver = CPServer::new("3000");
     loop {
 	cpserver.accept_new_clients();
 	cpserver.send_messages_to_clients();
