@@ -207,8 +207,8 @@ impl CPServer {
     // check if "reload" ipc object has changed if so, consume it, and refresh
     // each client by sending [0x1] on the websocket associated with that
     // client
-    pub fn send_reloads_to_clients(&mut self) {
-    }
+    /*pub fn send_reloads_to_clients(&mut self) {
+    }*/
     
 }
 
