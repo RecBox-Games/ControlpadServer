@@ -260,7 +260,7 @@ fn main() {
     systemlock::initialize();
     
     // start server
-    let mut cpserver = CPServer::new("3000");
+    let mut cpserver = CPServer::new("50079");
     loop {
 	cpserver.accept_new_clients();
 	cpserver.send_messages_to_clients();
