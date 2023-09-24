@@ -204,7 +204,6 @@ impl CPServer {
         } 
     }
 
-
     // Out: whether or not all clients should be reloaded
     pub fn read_reload(&mut self) -> Result<bool> {
         let ipc_name = "rpc_out";
@@ -273,4 +272,4 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_micros(1500));
     }
 }
-!
+
