@@ -10,17 +10,17 @@ pub enum Msg {
     Bytes(Vec<u8>),
 }
 
-pub type ConnId = String; // TODO: change to ID from browser
+pub type SawketId = String; // TODO: change to ID from browser
 
-pub struct Conn {
+pub struct Sawket {
     websocket: WebSocket<TcpStream>,
     addr: String,
     dead: bool,
 }
 
-impl Conn {
-    pub fn new(ws: WebSocket<TcpStream>) -> Result<Self> {
-        let addr = match ws.get_ref().peer_addr() {
+impl Sawket {
+    pub fn new(websocket: WebSocket<TcpStream>) -> Result<Self> {
+        let addr = match websocket.get_ref().peer_addr() {
             Ok(sock_addr) => sock_addr.to_string(),
             Err(e) => {
                 println!("failure getting websocket address: {}", e);
@@ -28,76 +28,90 @@ impl Conn {
             }
         };
         // TODO: potentially increase timeout
-	Ok(Conn {
-	    websocket: ws,
-	    addr: addr,
-	    dead: false,
-	})
+	    Ok(Sawket {
+	        websocket,
+	        addr,
+	        dead: false,
+	    })
     }
 
-    pub fn addr(&self) -> ConnId {
-	self.addr.clone()
+    pub fn addr(&self) -> SawketId {
+	    self.addr.clone()
     }
 
     pub fn is_dead(&self) -> bool {
-	self.dead
+	    self.dead
     }
 
-    pub fn get_recved_msgs(&mut self) -> Vec<Msg> {
-	if self.dead {
-	    return vec![];
-	}
-	let mut msgs: Vec<Msg> = vec![];
-	loop {
-	    match self.websocket.read_message() {
-		Ok(m) => {
-		    match m {
-			tungstenite::Message::Close(_) => {
-			    self.dead = true;
-			    break;
-			}
-			tungstenite::Message::Binary(v) => {
-			    msgs.push(Msg::Bytes(v));
-			}
-			tungstenite::Message::Text(s) => {
-			    msgs.push(Msg::Text(s));
-			}
-			other => {
-			    println!("Warning: Conn {} recved non-string non-binary \
-				      message: {:?}",
-				     self.addr, other);
-			}
-		    }
-		}
-		// no more messages available case
-		Err(tungstenite::error::Error::Io(e))
-		    if e.kind() == std::io::ErrorKind::WouldBlock => {
-		    break;
-		}
-		Err(e) => {
-		    println!("Warning: Conn {} is dying because: <{}>",
-			     self.addr, e);
-		    self.dead = true;
-		    break;
-		}
+    // Out: (a message if theres a valid one, whether there might still be messages left)
+    pub fn recv_msg(&mut self) -> (Option<Msg>, bool) {
+	    if self.dead {
+	        return (None, false);
 	    }
-	}
-	msgs
+	    match self.websocket.read_message() {
+		    Ok(m) => {
+		        match m {
+			        tungstenite::Message::Close(_) => {
+			            self.dead = true;
+			            return (None, false)
+			        }
+			        tungstenite::Message::Binary(v) => {
+			            return (Some(Msg::Bytes(v)), true);
+			        }
+			        tungstenite::Message::Text(s) => {
+			            return (Some(Msg::Text(s)), true);
+			        }
+			        other => {
+			            println!("Warning: Sawket {} recved non-string non-binary \
+				                  message: {:?}",
+				                 self.addr, other);
+                        return (None, true)
+			        }
+		        }
+		    }
+		    // no more messages available case
+		    Err(tungstenite::error::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                return (None, false);
+		    }
+		    Err(e) => {
+		        println!("Warning: Sawket {} is dying because: <{}>",
+			             self.addr, e);
+		        self.dead = true;
+                return (None, false);
+		    }
+	    }
+    }
+
+    pub fn recv_msgs(&mut self) -> Vec<Msg> {
+	    if self.dead {
+	        return vec![];
+	    }
+	    let mut msgs: Vec<Msg> = vec![];
+	    loop {
+            let (msg, contin) = self.recv_msg();
+            if let Some(m) = msg {
+                msgs.push(m);
+            }
+            if !contin {
+                break;
+            }
+        }
+	    msgs
     }
 
     pub fn send_msg(&mut self, msg: Msg) {
-	let res;
-	match msg {
-	    Msg::Text(t) => {
-		res = self.websocket.write_message(tungstenite::Message::Text(t));
+	    let res;
+	    match msg {
+	        Msg::Text(t) => {
+		        res = self.websocket.write_message(tungstenite::Message::Text(t));
+	        }
+	        Msg::Bytes(b) => {
+		        res = self.websocket.write_message(tungstenite::Message::Binary(b));
+	        }
 	    }
-	    Msg::Bytes(b) => {
-		res = self.websocket.write_message(tungstenite::Message::Binary(b));
+	    if let Err(e) = res {
+	        println!("Warning: {} websocket.write_message returned an Err {}", &self.addr, e);
 	    }
-	}
-	if let Err(e) = res {
-	    println!("Warning: write_message returned an Err {}", e);
-	}
     }
 }
 
@@ -107,31 +121,31 @@ pub struct Server {
 }
 
 type HandshakeResult = std::result::Result<WebSocket<TcpStream>,
-                              HandshakeError<ServerHandshake<TcpStream, NoCallback>>>;
+                                           HandshakeError<ServerHandshake<TcpStream, NoCallback>>>;
 
 impl Server {
     pub fn new(port: &str) -> Result<Self> {
-	let server = TcpListener::bind("0.0.0.0:".to_string()+port).unwrap();
-	server.set_nonblocking(true)?;
-	Ok(Server {
-	    server: server,
+	    let server = TcpListener::bind("0.0.0.0:".to_string()+port).unwrap();
+	    server.set_nonblocking(true)?;
+	    Ok(Server {
+	        server,
             handshake_continuation: None,
-	})
+	    })
     }
 
     fn websocket_from_handshake_result(&mut self, result: HandshakeResult) -> Option<WebSocket<TcpStream>> {
         match result {
-	    Ok(websocket) => {
+	        Ok(websocket) => {
                 Some(websocket)
-	    }
-	    Err(HandshakeError::Interrupted(mid_handshake)) => {
+	        }
+	        Err(HandshakeError::Interrupted(mid_handshake)) => {
                 self.handshake_continuation = Some(mid_handshake);
                 None
-	    }
-	    Err(e) => {
-		println!("Warning: Error during websocket handshake: {}", e);
+	        }
+	        Err(e) => {
+		        println!("Warning: Error during websocket handshake: {}", e);
                 None
-	    }
+	        }
         }
     }
 
@@ -142,40 +156,40 @@ impl Server {
             return self.websocket_from_handshake_result(result);
         } 
         // brand new connection
-	match self.server.accept() {
-	    Ok((stream, _)) => {
+	    match self.server.accept() {
+	        Ok((stream, _)) => {
                 if let Err(e) = stream.set_nonblocking(true) {
                     println!("Failed to set stream to nonblocking before accept(): {}", e);
                 }
                 let result = accept(stream);
                 self.websocket_from_handshake_result(result)
-	    }
-	    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+	        }
+	        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 None
-	    }
+	        }
             Err(e) => {
-		println!("Warning: Unexpected error when trying to accept a connection: {}", e);
+		        println!("Warning: Unexpected error when trying to accept a connection: {}", e);
                 None
             }                
-	}
+	    }
     }
 
-    pub fn new_connections(&mut self) -> Vec<Conn> {
-	let mut conns: Vec<Conn> = vec![];
-	loop {
+    pub fn new_connections(&mut self) -> Vec<Sawket> {
+	    let mut sawkets: Vec<Sawket> = vec![];
+	    loop {
             if let Some(websocket) = self.get_next_websocket() {
-                match Conn::new(websocket) {
-		    Ok(conn) => {
- 		        conns.push(conn);
-		    }
-		    Err(e) => {
-		        println!("Warning: Error when trying to create a conn: {}", e);
-		    }
-	        }
+                match Sawket::new(websocket) {
+		            Ok(sawket) => {
+ 		                sawkets.push(sawket);
+		            }
+		            Err(e) => {
+		                println!("Warning: Error when trying to create a sawket: {}", e);
+		            }
+	            }
             } else {
                 break;
             }
-	}
-	return conns;
+	    }
+	    return sawkets;
     }
 }

@@ -23,17 +23,17 @@ macro_rules! dbgprint {
 // ----------------------------
 // vvv ipc helper functions vvv
 
-fn write_cp_clients(clients: &Vec<CPClient>) -> Result<()> {
-    for c in clients {
-        let delin_id = c.id() + str::from_utf8(&[0])?; // known to be valid utf8
-        ipc::write("cp_clients", &delin_id)?;
-    }
+fn write_cp_client(client: &CPClient) -> Result<()> {
+    let delin_id = client.id() + str::from_utf8(&[0])?; // known to be valid utf8
+    ipc::write("cp_clients", &delin_id)?;
     Ok(())
 }
 
 fn rewrite_cp_clients(clients: &Vec<CPClient>) -> Result<()> {
     ipc::consume("cp_clients")?;
-    write_cp_clients(clients)?;
+    for c in clients {
+        write_cp_client(c)?;
+    }
     Ok(())
 }
 
@@ -63,6 +63,13 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+
+fn sawket_id_base(sawk: &saws::Sawket) -> String {
+    let addr = sawk.addr();
+    let ip = addr.split(":").next().unwrap();
+    let id_bytes = ip.split(".").collect::<Vec<&str>>();
+    return id_bytes[2..4].join("x");
+}
 // ^^^ ipc helper functions ^^^
 // ----------------------------
 
@@ -72,18 +79,18 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
 
 struct CPClient {
     id: String,
-    conn: saws::Conn,
+    sawkets: Vec<saws::Sawket>,
 }
 
 impl CPClient {
-    fn new(conn: saws::Conn) -> Self {
-        let addr = conn.addr();
-        let ip = addr.split(":").next().unwrap();
-        let id_bytes = ip.split(".").collect::<Vec<&str>>();
-        let id = id_bytes[2..4].join("x") + "-0";
+    fn new(sawket: saws::Sawket, subid: u8) -> Self {
+        let id_base = sawket_id_base(&sawket);
+        let id = id_base + "-" + &subid.to_string();
+        let mut sawkets = Vec::new();
+        sawkets.push(sawket);
         CPClient {
-            id: id,
-            conn: conn,
+            id,
+            sawkets,
         }
     }
 
@@ -91,19 +98,43 @@ impl CPClient {
         self.id.clone()
     }
 
+    fn send_msg(&mut self, msg: String) {
+        for sawk in &mut self.sawkets {
+            sawk.send_msg(Msg::Text(msg.clone()));
+        }
+    }
+
+    fn recv_msgs(&mut self) -> Vec<Msg> {
+        let mut msgs = Vec::new();
+        for sawk in &mut self.sawkets {
+            msgs.append(&mut sawk.recv_msgs());
+        }
+        return msgs;
+    }
+
     fn is_dead(&self) -> bool {
-        self.conn.is_dead()
+        for sawket in &self.sawkets {
+            if !sawket.is_dead() {
+                return false;
+            }
+        }
+        return true;
     }
 
-    fn update_subid(&mut self, subid: u8) {
-        let base_id = self.id.split("-").collect::<Vec<&str>>()[0];
-        self.id = base_id.to_string() + "-" + &subid.to_string();
+    fn clear_dead_sawkets(&mut self) {
+        self.sawkets.retain(|sawket| !sawket.is_dead());
     }
 
+    fn add_sawket(&mut self, sawk: saws::Sawket) {
+        self.sawkets.push(sawk);
+    }
 }
 
 struct CPServer {
     server: saws::Server,
+    // pending_sawkets: The Sawkets that have not yet sent a subid and
+    // therefore have not become valid CPClients yet
+    pending_sawkets: Vec<saws::Sawket>,
     clients: Vec<CPClient>,
     
 }
@@ -113,95 +144,120 @@ impl CPServer {
         CPServer {
             server: saws::Server::new(port).unwrap(), // fatal
             clients: vec![],
+            pending_sawkets: vec![],
         }
     }
 
-    // create websockets based on inbound websocket creation requests and
-    // update the cp_clients ipc object with the list of currently connected clients
-    pub fn accept_new_clients(&mut self) {
-        let new_conns = self.server.new_connections();
-        if new_conns.len() == 0 {
-            return;
+    // If an existing CPClient exists with this ID then add this sawket to that
+    // cpclient, otherwise the ID is unique so create a new cpclient to hold
+    // the sawket
+    fn incorporate_new_sawket(&mut self, sawket: saws::Sawket, subid: u8) {
+        let id_base = sawket_id_base(&sawket);
+        let new_sawk_id = id_base + "-" + &subid.to_string();
+        if let Some(client) = self.clients.iter_mut().find(|client| client.id == new_sawk_id) {
+            client.add_sawket(sawket);
+        } else {
+            let client = CPClient::new(sawket, subid);
+            write_cp_client(&client)
+                .expect("Failure writing to cp_clients for new client");
+            self.clients.push(client);
+            dbgprint!("clients: {:?}", self.clients.iter()
+                      .map(|x| x.id()).collect::<Vec<String>>());
         }
-        let mut new_clients = new_conns.into_iter()
-            .map(|c| CPClient::new(c)).collect::<Vec<CPClient>>();
-        write_cp_clients(&new_clients)
-            .expect("Failure writing to cp_clients");
-        self.clients.append(&mut new_clients);
-        dbgprint!("clients: {:?}", self.clients.iter()
-                  .map(|x| x.id()).collect::<Vec<String>>());
+    }
+
+    pub fn accept_new_sawkets(&mut self) {
+        self.pending_sawkets.append(&mut self.server.new_connections());
     }
 
     // For websockets that have died, remove the CPClient from our list and
     // update the cp_clients ipc object to reflect that
     pub fn clear_dead_clients(&mut self) {
+        self.clients.iter_mut().for_each(|x| x.clear_dead_sawkets());
         let old_len = self.clients.len();
         self.clients.retain(|x| ! x.is_dead());
         if self.clients.len() == old_len {
             return;
         }
-        dbgprint!("clients: {:?}", self.clients.iter()
-                  .map(|x| x.id()).collect::<Vec<String>>());
         rewrite_cp_clients(&self.clients)
             .expect("Failure rewriting cp_clients");
+        dbgprint!("clients: {:?}", self.clients.iter()
+                  .map(|x| x.id()).collect::<Vec<String>>());
     }
 
     // for each "_out" ipc object that has new messages, send those messages
     // over websocket to the associated client
     pub fn send_messages_to_clients(&mut self) {
-        for c in &mut self.clients {
-            let msgs = read_msgs_for_client(c.id())
+        // TODO: In the first pass of loop over self.clients, collect up the
+        //       messages. In the second pass, send to all clients with that ID
+        for client in &mut self.clients {
+            let msgs = read_msgs_for_client(client.id())
                 .expect("Failure reading ipc from target");
             for m in msgs {
-                dbgprint!("-> {}: '{}'", c.id(), m);
-                c.conn.send_msg(Msg::Text(m));
+                dbgprint!("-> {}: '{}'", client.id(), m);
+                client.send_msg(m);
             }
         }
     }
 
+    pub fn recv_subids(&mut self) {
+        let mut subids: Vec<u8> = Vec::new();
+        let mut got_subid = |sawket: &mut saws::Sawket| -> bool {
+            let mut should = false;
+            if let (Some(m), _) = sawket.recv_msg() {
+                if let Msg::Bytes(v) = m {
+                    dbgprint!("<~ {} + {:?}", &sawket.addr(), &v);
+                    if v.len() > 0 {
+                        subids.push(v[0]);
+                        should = true;
+                    } 
+                    if v.len() != 1 {
+                        println!("Warning: invalid subid: {:?}", v);
+                    }
+                } else if let Msg::Text(t) = m {
+                    println!("Warning: received Msg::Text from pending sawket : {:?}", t);
+                } else {
+                    println!("Warning: should be unreachable 932845");
+                }
+            }
+            return should
+        };
+        let mut i = 0;
+        let mut unpended_sawkets: Vec<saws::Sawket> = Vec::new();        
+        while i < self.pending_sawkets.len() {
+            if got_subid(&mut self.pending_sawkets[i]) {
+                unpended_sawkets.push(self.pending_sawkets.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        while unpended_sawkets.len() > 0 {
+            self.incorporate_new_sawket(unpended_sawkets.remove(i), subids[i]);
+        }
+    }
+    
     // for each websocket that had new messages, write those messages to the
     // associated  "_in" ipc object
     pub fn recv_messages_for_target(&mut self) {
-        let mut new_subids = false;
-        for c in &mut self.clients {
-            let msgs = c.conn.get_recved_msgs();
+        for client in &mut self.clients {
+            let msgs = client.recv_msgs();
             let mut tmsgs = Vec::<String>::new();
-            let mut subid: Option<u8> = None;
             for m in msgs {
                 match m {
                     Msg::Text(t) => {
-                        dbgprint!("<- {}: '{}'", &c.id(), &t);
+                        dbgprint!("<- {}: '{}'", &client.id(), &t);
                         tmsgs.push(t);
                     }
                     Msg::Bytes(v) => {
-                        dbgprint!("<- {}: {:?}", &c.id(), &v);
-                        if v.len() > 0 {
-                            subid = Some(v[0]);
-                        } 
-                        if v.len() != 1 {
-                            println!("Warning: invalid subid: {:?}", v);
-                        }
+                        println!("Warning: received Msg::Bytes from unpended sawket: {:?}", v);
                     }
                 }
             }
-            if let Some(n) = subid {
-                c.update_subid(n);
-                new_subids = true;
-            }
-            
             if tmsgs.len() != 0 {
-                
-                write_msgs_from_client(c.id(), tmsgs)
+                write_msgs_from_client(client.id(), tmsgs)
                     .expect("Failure writing ipc to target");
             }
         }
-
-        if new_subids {
-            dbgprint!("clients: {:?}", self.clients.iter()
-                      .map(|x| x.id()).collect::<Vec<String>>());
-            rewrite_cp_clients(&self.clients)
-                .expect("Failure rewriting cp_clients");
-        } 
     }
 
     // Out: whether or not all clients should be reloaded
@@ -209,14 +265,11 @@ impl CPServer {
         let ipc_name = "rpc_out";
         //read here
         let rpc_contents = ipc::consume(&ipc_name)?;
-
         if rpc_contents.len() == 0 {
             return Ok(false);
         }
-        
         let mut parts = rpc_contents.split(str::from_utf8(&[0])?).collect::<Vec<&str>>();
         parts.pop();
-
         for message in parts {
             if message == "reload" {
                 return Ok(true)
@@ -225,17 +278,18 @@ impl CPServer {
         return Ok(false);
     }
 
-
+    // notify all clients that they should refresh their webpage
     pub fn send_reloads_to_clients(&mut self)  {
         let should_reload = self.read_reload().unwrap_or_else( |e| {
             panic!("Failed to read reload message with error {}", e);
         });
-
-        if should_reload {
-            // go through clients and send vec![0x1]
-            for c in &mut self.clients {
-                c.conn.send_msg(Msg::Bytes(vec![0x1]));
-                println!("message sent!");
+        if !should_reload {
+            return;
+        }
+        // go through clients and send vec![0x1] which means reload
+        for client in &mut self.clients {
+            for sawk in & mut client.sawkets {
+                sawk.send_msg(Msg::Bytes(vec![0x1]));
             }
         }
     }
@@ -264,7 +318,8 @@ fn main() {
     // start server
     let mut cpserver = CPServer::new("50079");
     loop {
-        cpserver.accept_new_clients();
+        cpserver.accept_new_sawkets();
+        cpserver.recv_subids();
         cpserver.send_messages_to_clients();
         cpserver.recv_messages_for_target();
         cpserver.clear_dead_clients();
