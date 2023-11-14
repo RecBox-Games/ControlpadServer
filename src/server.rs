@@ -232,7 +232,7 @@ impl CPServer {
             }
         }
         while unpended_sawkets.len() > 0 {
-            self.incorporate_new_sawket(unpended_sawkets.remove(i), subids[i]);
+            self.incorporate_new_sawket(unpended_sawkets.remove(0), subids.remove(0));
         }
     }
     
