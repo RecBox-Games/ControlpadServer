@@ -10,6 +10,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[cfg(target_os = "linux")]
 const IPC_PATH: &str = "/home/requin/ipc/";
+#[cfg(target_os = "macos")]
+const IPC_PATH: &str = "/Users/gamenite";
 #[cfg(target_os = "windows")]
 const IPC_PATH: &str = "C:\\Users\\gamenite\\";
 
