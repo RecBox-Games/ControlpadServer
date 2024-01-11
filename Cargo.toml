@@ -12,6 +12,8 @@ tungstenite="0.18.0"
 rand="0.8.5"
 
 [lib]
+#crate-type = ["staticlib"]
+#crate-type = ["dylib"]
 name = "controlpads"
 path = "src/lib.rs"
 
