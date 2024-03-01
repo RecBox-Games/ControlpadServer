@@ -1,4 +1,3 @@
-
 #![allow(dead_code)]
 
 use std::io::{Read, Write, Seek, SeekFrom};
