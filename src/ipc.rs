@@ -1,3 +1,4 @@
+
 #![allow(dead_code)]
 
 use std::io::{Read, Write, Seek, SeekFrom};
@@ -37,7 +38,6 @@ pub fn initialize() {
  */
 pub fn write(name: &str, data: &str) -> Result<()> {
     //#[cfg(debug_assertions)] println!("ipc write: name: {}, data: {}", name, data);
-    println!("ipc write: name: {}, data: {}", name, data);
     let lock = Locked::new(name)?;
     let path = format!("{}{}", IPC_PATH, name);
     if Path::new(&path).exists() {

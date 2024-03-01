@@ -57,7 +57,6 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
     for m in msgs {
         s += &m;
         s += str::from_utf8(&[0])?;
-        println!("writing: {}", &s);
     }
     let ipc_name = id + "_in";
     ipc::write(&ipc_name, &s)?;
