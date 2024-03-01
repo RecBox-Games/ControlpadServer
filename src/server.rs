@@ -57,9 +57,21 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
     for m in msgs {
         s += &m;
         s += str::from_utf8(&[0])?;
+        println!("writing: {}", &s);
     }
     let ipc_name = id + "_in";
     ipc::write(&ipc_name, &s)?;
+    Ok(())
+}
+
+fn write_rpc_from_client(data: &Vec<u8>) -> Result<()> {   
+    let ipc_name = "rpc_in";
+    if *data == vec![0x99, 0x99] {
+        ipc::write(ipc_name, "quit")?;        
+    } else {
+        println!("Warning: received invalid rpc message: {:?}", data);
+    }
+
     Ok(())
 }
 
@@ -249,6 +261,8 @@ impl CPServer {
                         tmsgs.push(t);
                     }
                     Msg::Bytes(v) => {
+                        write_rpc_from_client(&v)
+                            .expect("Failure writing rpc from client");
                         println!("Warning: received Msg::Bytes from unpended sawket: {:?}", v);
                     }
                 }
