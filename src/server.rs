@@ -66,7 +66,6 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
 fn write_rpc_from_client(data: &Vec<u8>) -> Result<()> {
     let ipc_name = "rpc_in";
     if *data == vec![0x99, 0x99] {
-        // add a null byte to the end of the string "quit"
         let s = "quit".to_string() + str::from_utf8(&[0])?;        
         ipc::write(ipc_name, &s)?;        
     } else if *data == vec![0x98, 0x98] {
