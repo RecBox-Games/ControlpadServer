@@ -78,7 +78,6 @@ fn write_rpc_from_client(data: &Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-
 fn sawket_id_base(sawk: &saws::Sawket) -> String {
     let addr = sawk.addr();
     let ip = addr.split(":").next().unwrap();
