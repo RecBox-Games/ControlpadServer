@@ -19,6 +19,9 @@ macro_rules! dbgprint {
     ($( $args:expr ),*) => { }
 }
 
+// ----------------------------
+const RPC_QUIT: &[u8] = &[0x99, 0x99];
+const RPC_GETQR: &[u8] = &[0x98, 0x98];
 
 // ----------------------------
 // vvv ipc helper functions vvv
@@ -65,10 +68,10 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
 
 fn write_rpc_from_client(data: &Vec<u8>) -> Result<()> {
     let ipc_name = "rpc_in";
-    if *data == vec![0x99, 0x99] {
+    if *data == RPC_QUIT {
         let s = "quit".to_string() + str::from_utf8(&[0])?;        
         ipc::write(ipc_name, &s)?;        
-    } else if *data == vec![0x98, 0x98] {
+    } else if *data == RPC_GETQR {
         let s = "getqr".to_string() + str::from_utf8(&[0])?;        
         ipc::write(ipc_name, &s)?;
     } else {
@@ -262,16 +265,19 @@ impl CPServer {
                         dbgprint!("<- {}: '{}'", &client.id(), &t);
                         tmsgs.push(t);
                     }
-                    Msg::Bytes(v) => {
+                    Msg::Bytes(v) => {                        
                         write_rpc_from_client(&v)
-                            .expect("Failure writing rpc from client");
-                        println!("Warning: received Msg::Bytes from unpended sawket: {:?}", v);
+                            .unwrap_or_else(|e| {
+                                println!("Warning: Failure writing rpc from client to target. Error: {}", e);
+                            });
                     }
                 }
             }
             if tmsgs.len() != 0 {
                 write_msgs_from_client(client.id(), tmsgs)
-                    .expect("Failure writing ipc to target");
+                    .unwrap_or_else(|e| {
+                        println!("Warning: Failure writing ipc from client to target. Error: {}", e);
+                    });
             }
         }
     }
