@@ -1,10 +1,14 @@
-// Simple A** Web Sockets
+//========================== Simple A** Web Sockets ==========================//
+
+//==================================<===|===>=================================//
 use std::net::{TcpStream, TcpListener};
 use tungstenite;
 use tungstenite::{WebSocket, accept, ServerHandshake};
 use tungstenite::handshake::{MidHandshake, server::NoCallback, HandshakeError};
 use crate::util::Result;
 
+
+//================================== Sawket ==================================//
 pub enum Msg {
     Text(String),
     Bytes(Vec<u8>),
@@ -115,6 +119,8 @@ impl Sawket {
     }
 }
 
+
+//================================== Server ==================================//
 pub struct Server {
     server: TcpListener,
     handshake_continuation: Option<MidHandshake<ServerHandshake<TcpStream, NoCallback>>>,
@@ -133,7 +139,8 @@ impl Server {
 	    })
     }
 
-    fn websocket_from_handshake_result(&mut self, result: HandshakeResult) -> Option<WebSocket<TcpStream>> {
+    fn websocket_from_handshake_result(&mut self, result: HandshakeResult) ->
+        Option<WebSocket<TcpStream>> {
         match result {
 	        Ok(websocket) => {
                 Some(websocket)
@@ -193,3 +200,4 @@ impl Server {
 	    return sawkets;
     }
 }
+//==================================<===|===>=================================//

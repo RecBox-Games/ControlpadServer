@@ -1,11 +1,14 @@
+//==================================<===|===>=================================//
 mod ipc;
 mod saws;
 mod systemlock;
 mod util;
+mod animal_names;
 
 use saws::Msg;
+use animal_names::{NUM_ANIMAL_NAMES, ANIMAL_NAMES};
 
-use std::str;
+use std::{str, collections::HashMap};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 
@@ -20,18 +23,46 @@ macro_rules! dbgprint {
 }
 
 // ----------------------------
+
+//================================= Constants ================================//
+// note: The term RPC is used loosely here. In this context it just means parts
+//       of the controlpad message passing protocol that
+
+// RPC without arguments should always be 2 bytes
 const RPC_QUIT: &[u8] = &[0x99, 0x99];
 const RPC_GETQR: &[u8] = &[0x98, 0x98];
 
-// ----------------------------
-// vvv ipc helper functions vvv
+// RPC with a single vector of variable length data should always use a three
+// byte header
+//const RPC_EXAMPLE_HEADER: &[u8] = &[0xA0, 0xA0, 0xA0];
 
+
+//================================== Helpers =================================//
+// assign an animal for a new client
+fn get_assigned_name(cp_number: u64) -> String {
+    let suffix_num = cp_number/NUM_ANIMAL_NAMES;
+    let suffix = if suffix_num == 0 { "".to_string() } else { suffix_num.to_string() };
+    let animal_index = cp_number % NUM_ANIMAL_NAMES;
+    let prefix = ANIMAL_NAMES[animal_index as usize];
+    format!("{}{}", prefix, suffix)
+}
+
+// get the last two bytes of ip address from socket for identification
+fn sawket_id_base(sawk: &saws::Sawket) -> String {
+    let addr = sawk.addr();
+    let ip = addr.split(":").next().unwrap();
+    let id_bytes = ip.split(".").collect::<Vec<&str>>();
+    return id_bytes[2..4].join("x");
+}
+
+// add to the list of connected clients
 fn write_cp_client(client: &CPClient) -> Result<()> {
     let delin_id = client.id() + str::from_utf8(&[0])?; // known to be valid utf8
     ipc::write("cp_clients", &delin_id)?;
     Ok(())
 }
 
+// update the list of connected clients
 fn rewrite_cp_clients(clients: &Vec<CPClient>) -> Result<()> {
     ipc::consume("cp_clients")?;
     for c in clients {
@@ -40,6 +71,7 @@ fn rewrite_cp_clients(clients: &Vec<CPClient>) -> Result<()> {
     Ok(())
 }
 
+// read outbound messages from the game destined for client with id
 fn read_msgs_for_client(id: String) -> Result<Vec<String>> {
     let mut ret: Vec<String> = Vec::new();
     let ipc_name = id + "_out";
@@ -55,6 +87,7 @@ fn read_msgs_for_client(id: String) -> Result<Vec<String>> {
     Ok(ret)
 }
 
+// write inbound messages from the client with id for the game to receive
 fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
     let mut s = String::new();
     for m in msgs {
@@ -66,7 +99,8 @@ fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn write_rpc_from_client(data: &Vec<u8>) -> Result<()> {
+// write GameNite protocol messages for SystemApps to handle
+fn write_rpc_message(data: &Vec<u8>) -> Result<()> {
     let ipc_name = "rpc_in";
     if *data == RPC_QUIT {
         let s = "quit".to_string() + str::from_utf8(&[0])?;        
@@ -75,25 +109,26 @@ fn write_rpc_from_client(data: &Vec<u8>) -> Result<()> {
         let s = "getqr".to_string() + str::from_utf8(&[0])?;        
         ipc::write(ipc_name, &s)?;
     } else {
-        println!("Warning: received invalid rpc message: {:?}", data);
+        println!("Warning: invalid rpc message: {:?}", data);
     }
-
+    //
     Ok(())
 }
 
-fn sawket_id_base(sawk: &saws::Sawket) -> String {
-    let addr = sawk.addr();
-    let ip = addr.split(":").next().unwrap();
-    let id_bytes = ip.split(".").collect::<Vec<&str>>();
-    return id_bytes[2..4].join("x");
+// handle GameNite protocol messages (passed as byte vector on sawkets)
+fn handle_bytes_from_client(data: &Vec<u8>) {
+    if data.len() == 2 {
+        write_rpc_message(data)
+            .unwrap_or_else(|e| println!("Warning: Failed to write rpc message \
+                                          with error: {}", e));
+        return;
+    } else {
+        println!("Warning: received byte vector less than 2 bytes long: {:?}", data);
+    }
 }
-// ^^^ ipc helper functions ^^^
-// ----------------------------
 
 
-// --------------------------
-// vvv Control Pad Server vvv
-
+//================================= CPClient =================================//
 struct CPClient {
     id: String,
     sawkets: Vec<saws::Sawket>,
@@ -147,12 +182,31 @@ impl CPClient {
     }
 }
 
+struct CPDescriptor {
+    cp_number: u64,
+    name: String,
+}
+
+impl CPDescriptor {
+    fn new(cp_number: u64) -> Self {
+        CPDescriptor {
+            cp_number,
+            name: get_assigned_name(cp_number),
+        }
+    }
+}
+
+
+//================================= CPServer =================================//
 struct CPServer {
     server: saws::Server,
     // pending_sawkets: The Sawkets that have not yet sent a subid and
     // therefore have not become valid CPClients yet
     pending_sawkets: Vec<saws::Sawket>,
     clients: Vec<CPClient>,
+    // contains data about clients like the associated name
+    descriptors: HashMap<String, CPDescriptor>,
+    next_cp_number: u64,
     
 }
 
@@ -162,6 +216,8 @@ impl CPServer {
             server: saws::Server::new(port).unwrap(), // fatal
             clients: vec![],
             pending_sawkets: vec![],
+            next_cp_number: 0,
+            descriptors: HashMap::new(),
         }
     }
 
@@ -175,6 +231,8 @@ impl CPServer {
             client.add_sawket(sawket);
         } else {
             let client = CPClient::new(sawket, subid);
+            self.insert_descriptor(client.id());
+            self.next_cp_number += 1;
             write_cp_client(&client)
                 .expect("Failure writing to cp_clients for new client");
             self.clients.push(client);
@@ -183,6 +241,25 @@ impl CPServer {
         }
     }
 
+    pub fn insert_descriptor(&mut self, id: String) {
+        if self.descriptors.contains_key(&id) {
+            return;
+        }
+        let descriptor = CPDescriptor::new(self.next_cp_number);
+        self.next_cp_number += 1;
+        self.descriptors.insert(id, descriptor);
+    }
+
+    pub fn remove_descriptor(&mut self, id: &str) {
+        self.descriptors.remove(id);
+    }
+
+    pub fn get_name(&mut self, id: &str) -> String {
+        self.descriptors.get(id)
+            .map(|d| d.name.to_string())
+            .unwrap_or("Nullephant".to_string())
+    }
+    
     pub fn accept_new_sawkets(&mut self) {
         self.pending_sawkets.append(&mut self.server.new_connections());
     }
@@ -204,7 +281,7 @@ impl CPServer {
 
     // for each "_out" ipc object that has new messages, send those messages
     // over websocket to the associated client
-    pub fn send_messages_to_clients(&mut self) {
+    pub fn handle_messages_from_target(&mut self) {
         // TODO: In the first pass of loop over self.clients, collect up the
         //       messages. In the second pass, send to all clients with that ID
         for client in &mut self.clients {
@@ -217,7 +294,7 @@ impl CPServer {
         }
     }
 
-    pub fn recv_subids(&mut self) {
+    pub fn handle_subids(&mut self) {
         let mut subids: Vec<u8> = Vec::new();
         let mut got_subid = |sawket: &mut saws::Sawket| -> bool {
             let mut should = false;
@@ -255,32 +332,57 @@ impl CPServer {
     
     // for each websocket that had new messages, write those messages to the
     // associated  "_in" ipc object
-    pub fn recv_messages_for_target(&mut self) {
+    pub fn handle_messages_from_clients(&mut self) {
+        let mut gamenite_msgs = Vec::<(String, String)>::new();
         for client in &mut self.clients {
             let msgs = client.recv_msgs();
-            let mut tmsgs = Vec::<String>::new();
+            let mut game_msgs = Vec::<String>::new();
             for m in msgs {
                 match m {
                     Msg::Text(t) => {
                         dbgprint!("<- {}: '{}'", &client.id(), &t);
-                        tmsgs.push(t);
+                        if t.starts_with("_") {
+                            gamenite_msgs.push((client.id(), t));    // GameNite protocol message
+                        } else {
+                            game_msgs.push(t);    // game protocol message
+                        }
                     }
                     Msg::Bytes(v) => {                        
-                        write_rpc_from_client(&v)
-                            .unwrap_or_else(|e| {
-                                println!("Warning: Failure writing rpc from client to target. Error: {}", e);
-                            });
+                        handle_bytes_from_client(&v);
                     }
                 }
             }
-            if tmsgs.len() != 0 {
-                write_msgs_from_client(client.id(), tmsgs)
+            if game_msgs.len() != 0 {
+                write_msgs_from_client(client.id(), game_msgs)
                     .unwrap_or_else(|e| {
                         println!("Warning: Failure writing ipc from client to target. Error: {}", e);
                     });
             }
         }
+        for (client, msg) in gamenite_msgs {
+            self.handle_gamenite_message_from_client(client, msg);
+        }
     }
+
+    fn handle_gamenite_message_from_client(&mut self, client: String, message: String) {
+        if message.starts_with("_name") {
+            let parts: Vec<&str> = message.split(":").collect();
+            if parts.len() != 2 {
+                println!("Warning: _name message formatted incorrectly: {}", message);
+                
+            }
+        }
+        // TODO ping
+        else {
+            println!("Warning: received invalid underscore message: {}", message);
+        }
+    }
+
+    fn handle_gamenite_message_from_target(&mut self, message: String) {
+
+    }
+    
+    //pub fn handle_text_messages(&mut self, messages: &Vec<String>, 
 
     // Out: whether or not all clients should be reloaded
     pub fn read_reload(&mut self) -> Result<bool> {
@@ -317,11 +419,7 @@ impl CPServer {
     }
 }
 
-// ^^^ Control Pad Server ^^^
-// --------------------------
-
-
-
+//=================================== main ===================================//
 fn main() {
 
     // do not allow runnning as root (this check only works on windows)
@@ -341,12 +439,13 @@ fn main() {
     let mut cpserver = CPServer::new("50079");
     loop {
         cpserver.accept_new_sawkets();
-        cpserver.recv_subids();
-        cpserver.send_messages_to_clients();
-        cpserver.recv_messages_for_target();
+        cpserver.handle_subids();
+        cpserver.handle_messages_from_target();
+        cpserver.handle_messages_from_clients();
         cpserver.clear_dead_clients();
         cpserver.send_reloads_to_clients();
         std::thread::sleep(std::time::Duration::from_micros(1500));
     }
 }
 
+//==================================<===|===>=================================//
