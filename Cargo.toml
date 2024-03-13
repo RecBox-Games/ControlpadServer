@@ -10,6 +10,7 @@ default-run = "server"
 fs2="*"
 tungstenite="0.18.0"
 rand="0.8.5"
+unidecode="0.3.0"
 
 [lib]
 #crate-type = ["staticlib"]

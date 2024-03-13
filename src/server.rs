@@ -4,11 +4,13 @@ mod saws;
 mod systemlock;
 mod util;
 mod animal_names;
-
+//
 use saws::Msg;
 use animal_names::{NUM_ANIMAL_NAMES, ANIMAL_NAMES};
-
+//
 use std::{str, collections::HashMap};
+use unidecode::unidecode;
+//
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 
@@ -25,12 +27,14 @@ macro_rules! dbgprint {
 // ----------------------------
 
 //================================= Constants ================================//
-// note: The term RPC is used loosely here. In this context it just means parts
-//       of the controlpad message passing protocol that
+
+const MAX_NAME_CHARS: usize = 16;
 
 // RPC without arguments should always be 2 bytes
 const RPC_QUIT: &[u8] = &[0x99, 0x99];
 const RPC_GETQR: &[u8] = &[0x98, 0x98];
+// note: The term RPC is used loosely here. In this context it just means parts
+//       of the controlpad message passing protocol that
 
 // RPC with a single vector of variable length data should always use a three
 // byte header
@@ -47,6 +51,24 @@ fn get_assigned_name(cp_number: u64) -> String {
     format!("{}{}", prefix, suffix)
 }
 
+fn reduce_to_length(s: &str, length: usize) -> String {
+    s.chars().take(length).collect::<String>()
+}
+
+fn clean_name(name: &str) -> String {
+    let ascii_equivalent = unidecode(name);
+    let filtered = ascii_equivalent.chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ')
+        .collect::<String>();
+    let collapsed_whitespace = filtered.split_whitespace()
+        .collect::<Vec<_>>().join(" ");
+    let trimmed = reduce_to_length(collapsed_whitespace.trim_start(), MAX_NAME_CHARS)
+        .trim_end().to_string();
+    //
+    trimmed
+}
+
+//================================ IPC Helpers ===============================//
 // get the last two bytes of ip address from socket for identification
 fn sawket_id_base(sawk: &saws::Sawket) -> String {
     let addr = sawk.addr();
@@ -57,7 +79,7 @@ fn sawket_id_base(sawk: &saws::Sawket) -> String {
 
 // add to the list of connected clients
 fn write_cp_client(client: &CPClient) -> Result<()> {
-    let delin_id = client.id() + str::from_utf8(&[0])?; // known to be valid utf8
+    let delin_id = client.id.clone() + str::from_utf8(&[0])?; // known to be valid utf8
     ipc::write("cp_clients", &delin_id)?;
     Ok(())
 }
@@ -72,9 +94,9 @@ fn rewrite_cp_clients(clients: &Vec<CPClient>) -> Result<()> {
 }
 
 // read outbound messages from the game destined for client with id
-fn read_msgs_for_client(id: String) -> Result<Vec<String>> {
+fn read_msgs_for_client(id: &CPID) -> Result<Vec<String>> {
     let mut ret: Vec<String> = Vec::new();
-    let ipc_name = id + "_out";
+    let ipc_name = id.clone() + "_out";
     let msgs_string = ipc::consume(&ipc_name)?;
     if msgs_string.len() == 0 {
         return Ok(vec![]);
@@ -88,13 +110,13 @@ fn read_msgs_for_client(id: String) -> Result<Vec<String>> {
 }
 
 // write inbound messages from the client with id for the game to receive
-fn write_msgs_from_client(id: String, msgs: Vec<String>) -> Result<()> {
+fn write_msgs_from_client(id: &CPID, msgs: Vec<String>) -> Result<()> {
     let mut s = String::new();
     for m in msgs {
         s += &m;
         s += str::from_utf8(&[0])?;
     }
-    let ipc_name = id + "_in";
+    let ipc_name = id.clone() + "_in";
     ipc::write(&ipc_name, &s)?;
     Ok(())
 }
@@ -129,8 +151,9 @@ fn handle_bytes_from_client(data: &Vec<u8>) {
 
 
 //================================= CPClient =================================//
+type CPID = String;
 struct CPClient {
-    id: String,
+    id: CPID,
     sawkets: Vec<saws::Sawket>,
 }
 
@@ -150,6 +173,10 @@ impl CPClient {
         self.id.clone()
     }
 
+    fn has_id(&self, id: &str) -> bool {
+        self.id == id
+    }
+    
     fn send_msg(&mut self, msg: String) {
         for sawk in &mut self.sawkets {
             sawk.send_msg(Msg::Text(msg.clone()));
@@ -182,17 +209,102 @@ impl CPClient {
     }
 }
 
-struct CPDescriptor {
-    cp_number: u64,
-    name: String,
+
+//================================== CPInfo ==================================//
+struct CPInfo {
+    next_cp_number: u64,
+    name_from_id: HashMap<String, String>,
+    id_from_lower_name: HashMap<String, String>,
 }
 
-impl CPDescriptor {
-    fn new(cp_number: u64) -> Self {
-        CPDescriptor {
-            cp_number,
-            name: get_assigned_name(cp_number),
+impl CPInfo {
+    fn new() -> Self {
+        CPInfo {
+            next_cp_number: 0,
+            name_from_id: HashMap::new(),
+            id_from_lower_name: HashMap::new(),
         }
+    }
+    
+    fn add_client(&mut self, id: &CPID) {
+        if self.name_from_id.contains_key(id) {
+            println!("Warning: tried to add {} when it was already in \
+                      name_from_id", id);
+            return;
+        }
+        // Keep trying assigned names until we find one not already in use
+        let mut name: String;
+        loop {
+            name = get_assigned_name(self.next_cp_number);
+            self.next_cp_number += 1;
+            // in the vast majority of cases we will break from the loop on the
+            // first iteration
+            if self.is_name_available(&name) {
+                break;
+            }
+        }
+        self.id_from_lower_name.insert(name.to_lowercase(), id.clone());
+        self.name_from_id.insert(id.clone(), name);
+    }
+
+    fn try_change_name(&mut self, id: &str, name: String) {
+        let lower_name = name.to_lowercase();
+        let old_lower_name = if let Some(oln) = self.name_from_id.get(id) {
+            oln.to_lowercase()
+        } else {
+                println!("Error: attempt to change name for {} which has no \
+                          name currently", id);
+                return;
+        };
+        // change names if the name either doesn't exist yet or if id already
+        // owns the name (in which case we're changing capitalization)
+        if let Some(owner_id) = self.id_from_lower_name.get(&lower_name) {
+            if owner_id != id {
+                println!("Note: Attempt to name change to a name owned by a \
+                          different player");
+                return;
+            }
+        }
+        // change internal structures to represent the name change
+        self.id_from_lower_name.remove(&old_lower_name);
+        self.name_from_id.insert(id.to_string(), name);
+        self.id_from_lower_name.insert(lower_name, id.to_string());        
+    }
+
+    fn is_name_available(&self, name: &str) -> bool {
+        !self.id_from_lower_name.contains_key(&name.to_lowercase())
+    }
+
+    fn remove_client(&mut self, id: &str) {
+        let name = if let Some(name) = self.name_from_id.remove(id) {
+            name
+        } else {
+            println!("Warning: tried to remove {} when it was not in \
+                      name_from_id", id);
+            return;
+        };
+        let lower_name = name.to_lowercase();
+        let _id = if let Some(id) = self.id_from_lower_name.remove(&lower_name) {
+            id
+        } else {
+            println!("Warning: tried to remove {} when it was not in \
+                      id_from_lower_name", lower_name);
+            return;
+        };
+    }
+
+    fn get_name(&mut self, id: &str) -> String {
+        self.name_from_id.get(id)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                println!("Warning: Returning a Nullephant");
+                "Nullephant".to_string()
+            })
+    }
+
+    fn print(&self) {
+        println!("{:?}", self.name_from_id);
+        println!("{:?}", self.id_from_lower_name);
     }
 }
 
@@ -205,9 +317,7 @@ struct CPServer {
     pending_sawkets: Vec<saws::Sawket>,
     clients: Vec<CPClient>,
     // contains data about clients like the associated name
-    descriptors: HashMap<String, CPDescriptor>,
-    next_cp_number: u64,
-    
+    info: CPInfo,
 }
 
 impl CPServer {
@@ -216,8 +326,7 @@ impl CPServer {
             server: saws::Server::new(port).unwrap(), // fatal
             clients: vec![],
             pending_sawkets: vec![],
-            next_cp_number: 0,
-            descriptors: HashMap::new(),
+            info: CPInfo::new(),
         }
     }
 
@@ -231,35 +340,15 @@ impl CPServer {
             client.add_sawket(sawket);
         } else {
             let client = CPClient::new(sawket, subid);
-            self.insert_descriptor(client.id());
-            self.next_cp_number += 1;
+            self.info.add_client(&client.id);
             write_cp_client(&client)
                 .expect("Failure writing to cp_clients for new client");
             self.clients.push(client);
             dbgprint!("clients: {:?}", self.clients.iter()
-                      .map(|x| x.id()).collect::<Vec<String>>());
+                      .map(|x| &x.id).collect::<Vec<&CPID>>());
         }
     }
 
-    pub fn insert_descriptor(&mut self, id: String) {
-        if self.descriptors.contains_key(&id) {
-            return;
-        }
-        let descriptor = CPDescriptor::new(self.next_cp_number);
-        self.next_cp_number += 1;
-        self.descriptors.insert(id, descriptor);
-    }
-
-    pub fn remove_descriptor(&mut self, id: &str) {
-        self.descriptors.remove(id);
-    }
-
-    pub fn get_name(&mut self, id: &str) -> String {
-        self.descriptors.get(id)
-            .map(|d| d.name.to_string())
-            .unwrap_or("Nullephant".to_string())
-    }
-    
     pub fn accept_new_sawkets(&mut self) {
         self.pending_sawkets.append(&mut self.server.new_connections());
     }
@@ -276,22 +365,46 @@ impl CPServer {
         rewrite_cp_clients(&self.clients)
             .expect("Failure rewriting cp_clients");
         dbgprint!("clients: {:?}", self.clients.iter()
-                  .map(|x| x.id()).collect::<Vec<String>>());
+                  .map(|x| &x.id).collect::<Vec<&CPID>>());
     }
 
+    fn send_message_to_client(&mut self, id: &str, msg: String) {
+        // TODO: use a hashmap id->client for efficiency
+        //
+        // loop through our clients to find the one with id
+        let maybe_client = self.clients.iter_mut().find(|c| c.has_id(id));
+        // validate the client exists
+        let client = if let Some(client) = maybe_client {
+            client
+        } else {
+            println!("Warning: tried to send message to id that doesn't exist \
+                      ({})", id);
+            return;
+        };
+        // send
+        dbgprint!("|> {}: '{}'", &client.id, &msg);
+        client.send_msg(msg);
+    }
+    
     // for each "_out" ipc object that has new messages, send those messages
     // over websocket to the associated client
     pub fn handle_messages_from_target(&mut self) {
         // TODO: In the first pass of loop over self.clients, collect up the
         //       messages. In the second pass, send to all clients with that ID
+        let mut gamenite_msgs = Vec::<(String, String)>::new();
         for client in &mut self.clients {
-            let msgs = read_msgs_for_client(client.id())
+            let msgs = read_msgs_for_client(&client.id)
                 .expect("Failure reading ipc from target");
             for m in msgs {
-                dbgprint!("-> {}: '{}'", client.id(), m);
-                client.send_msg(m);
+                dbgprint!("-> {}: '{}'", &client.id, m);
+                if m.starts_with("_") {
+                    gamenite_msgs.push((client.id.clone(), m));    // GameNite protocol message
+                } else {
+                    client.send_msg(m);    // game protocol message
+                }
             }
         }
+        // TODO: handle gamenite_messages
     }
 
     pub fn handle_subids(&mut self) {
@@ -300,7 +413,7 @@ impl CPServer {
             let mut should = false;
             if let (Some(m), _) = sawket.recv_msg() {
                 if let Msg::Bytes(v) = m {
-                    dbgprint!("<~ {} + {:?}", &sawket.addr(), &v);
+                    dbgprint!("|< {} + {:?}", &sawket.addr(), &v);
                     if v.len() > 0 {
                         subids.push(v[0]);
                         should = true;
@@ -340,46 +453,77 @@ impl CPServer {
             for m in msgs {
                 match m {
                     Msg::Text(t) => {
-                        dbgprint!("<- {}: '{}'", &client.id(), &t);
+                        dbgprint!("<- {}: '{}'", &client.id, &t);
                         if t.starts_with("_") {
-                            gamenite_msgs.push((client.id(), t));    // GameNite protocol message
+                            gamenite_msgs.push((client.id.clone(), t));    // GameNite protocol message
                         } else {
                             game_msgs.push(t);    // game protocol message
                         }
                     }
-                    Msg::Bytes(v) => {                        
+                    Msg::Bytes(v) => {
+                        dbgprint!("|< {} + {:?}", &client.id, &v);
                         handle_bytes_from_client(&v);
                     }
                 }
             }
             if game_msgs.len() != 0 {
-                write_msgs_from_client(client.id(), game_msgs)
+                write_msgs_from_client(&client.id, game_msgs)
                     .unwrap_or_else(|e| {
                         println!("Warning: Failure writing ipc from client to target. Error: {}", e);
                     });
             }
         }
-        for (client, msg) in gamenite_msgs {
-            self.handle_gamenite_message_from_client(client, msg);
+        for (id, msg) in gamenite_msgs {
+            self.handle_gamenite_message_from_client(&id, msg);
         }
     }
 
-    fn handle_gamenite_message_from_client(&mut self, client: String, message: String) {
-        if message.starts_with("_name") {
-            let parts: Vec<&str> = message.split(":").collect();
-            if parts.len() != 2 {
-                println!("Warning: _name message formatted incorrectly: {}", message);
-                
-            }
+    fn _get_name(&mut self, id: &str, message: String) {
+        if &message != "_get_name" {
+            println!("Warning: invalid message {} should just be '_get_name'",
+                     message);
+            return;
         }
-        // TODO ping
+        let name = self.info.get_name(id);
+        println!("-{}", name);
+        self.send_message_to_client(id, format!("_name:{}", name));
+    }
+
+    fn _change_name(&mut self, id: &str, message: String) {
+        let parts: Vec<&str> = message.split(":").collect();
+        if parts.len() != 2 {
+            println!("Warning: invalid message {} should be formatted \
+                      '_change_name:<new-name>'", message);
+            return;
+        }
+        self.handle_name_change_request(id, parts[1]);
+        let name = self.info.get_name(id);
+        println!("-{}", name);
+        self.send_message_to_client(id, format!("_name:{}", name));
+    }
+    
+    fn handle_gamenite_message_from_client(&mut self, id: &str, message: String) {
+        if message.starts_with("_get_name") {
+            self._get_name(&id, message);
+        } else if message.starts_with("_change_name") {
+            self._change_name(id, message);
+        } else if message.starts_with("_print") {
+            self.info.print();
+        }
+            // TODO ping
         else {
             println!("Warning: received invalid underscore message: {}", message);
         }
     }
 
+    fn handle_name_change_request(&mut self, client: &str, name: &str) {
+        let cleaned_name = clean_name(name);
+        self.info.try_change_name(client, cleaned_name);
+        
+    }
+    
     fn handle_gamenite_message_from_target(&mut self, message: String) {
-
+        println!("TODO: handle gamenite message from target: {}", message);
     }
     
     //pub fn handle_text_messages(&mut self, messages: &Vec<String>, 
