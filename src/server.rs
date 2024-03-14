@@ -496,10 +496,10 @@ impl CPServer {
     }
 
     // '_get_name'
-    fn gamenite_get_name(&mut self, id: &CPID, parts: &[&str]) {
-        if parts.len() != 1 {
+    fn gamenite_get_name(&mut self, id: &CPID, args: &[&str]) {
+        if args.len() != 0 {
             println!("Warning: invalid message {}. _get_name from controlpads \
-                      takes no arguments", parts.join(":"));
+                      takes no arguments", args.join(":"));
             return;
         }
         let name = self.info.get_name(id);
@@ -508,22 +508,22 @@ impl CPServer {
     }
 
     // '_change_name:<new-name>'
-    fn gamenite_change_name(&mut self, id: &CPID, parts: &[&str]) {
-        if parts.len() != 2 {
+    fn gamenite_change_name(&mut self, id: &CPID, args: &[&str]) {
+        if args.len() != 1 {
             println!("Warning: invalid message {} should be formatted \
-                      '_change_name:<new-name>'", parts.join(":"));
+                      '_change_name:<new-name>'", args.join(":"));
             return;
         }
-        self.handle_name_change_request(id, parts[1]);
+        self.handle_name_change_request(id, args[0]);
         let name = self.info.get_name(id);
         self.send_message_to_client(id, format!("_name:{}", name));
     }
 
     // '_print'
-    fn gamenite_print(&mut self, _id: &CPID, parts: &[&str]) {
-        if parts.len() != 1 {
+    fn gamenite_print(&mut self, _id: &CPID, args: &[&str]) {
+        if args.len() != 0 {
             println!("Warning: invalid message {}. _print from controlpads \
-                      takes no arguments", parts.join(":"));
+                      takes no arguments", args.join(":"));
             return;
         }
         self.info.print();
@@ -549,8 +549,11 @@ impl CPServer {
 
     fn handle_name_change_request(&mut self, id: &CPID, name: &str) {
         let cleaned_name = clean_name(name);
+        if cleaned_name.len() == 0 {
+            // we don't allow empty name
+            return;
+        }
         self.info.try_change_name(id, cleaned_name);
-        
     }
     
     fn _handle_gamenite_message_from_target(&mut self, message: String) {
