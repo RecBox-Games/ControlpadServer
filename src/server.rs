@@ -72,7 +72,7 @@ fn clean_name(name: &str) -> String {
 // get the last two bytes of ip address from socket for identification
 fn sawket_id_base(sawk: &saws::Sawket) -> String {
     let addr = sawk.addr();
-    let ip = addr.split(":").next().unwrap();
+    let ip = addr.split(":").next().unwrap(); // unwrap because guarunteed
     let id_bytes = ip.split(".").collect::<Vec<&str>>();
     return id_bytes[2..4].join("x");
 }
@@ -169,14 +169,6 @@ impl CPClient {
         }
     }
 
-    fn id(&self) -> String {
-        self.id.clone()
-    }
-
-    fn has_id(&self, id: &str) -> bool {
-        self.id == id
-    }
-    
     fn send_msg(&mut self, msg: String) {
         for sawk in &mut self.sawkets {
             sawk.send_msg(Msg::Text(msg.clone()));
@@ -275,7 +267,7 @@ impl CPInfo {
         !self.id_from_lower_name.contains_key(&name.to_lowercase())
     }
 
-    fn remove_client(&mut self, id: &str) {
+    fn _remove_client(&mut self, id: &str) {
         let name = if let Some(name) = self.name_from_id.remove(id) {
             name
         } else {
@@ -323,7 +315,7 @@ struct CPServer {
 impl CPServer {
     fn new(port: &str) -> Self {
         CPServer {
-            server: saws::Server::new(port).unwrap(), // fatal
+            server: saws::Server::new(port).unwrap(), // unwrap because fatal
             clients: vec![],
             pending_sawkets: vec![],
             info: CPInfo::new(),
@@ -336,13 +328,18 @@ impl CPServer {
     fn incorporate_new_sawket(&mut self, sawket: saws::Sawket, subid: u8) {
         let id_base = sawket_id_base(&sawket);
         let new_sawk_id = id_base + "-" + &subid.to_string();
-        if let Some(client) = self.clients.iter_mut().find(|client| client.id == new_sawk_id) {
-            client.add_sawket(sawket);
+        let maybe_client = self.clients
+            .iter_mut().find(|c| &c.id == &new_sawk_id);
+        if let Some(client) = maybe_client {
+                client.add_sawket(sawket);
         } else {
             let client = CPClient::new(sawket, subid);
             self.info.add_client(&client.id);
             write_cp_client(&client)
-                .expect("Failure writing to cp_clients for new client");
+                .unwrap_or_else(|e| 
+                    println!("Failure writing to cp_clients for new client: \
+                              {}", e)
+                );
             self.clients.push(client);
             dbgprint!("clients: {:?}", self.clients.iter()
                       .map(|x| &x.id).collect::<Vec<&CPID>>());
@@ -363,7 +360,9 @@ impl CPServer {
             return;
         }
         rewrite_cp_clients(&self.clients)
-            .expect("Failure rewriting cp_clients");
+                .unwrap_or_else(|e| 
+                    println!("Failure rewriting cp_clients: {}", e)
+                );
         dbgprint!("clients: {:?}", self.clients.iter()
                   .map(|x| &x.id).collect::<Vec<&CPID>>());
     }
@@ -372,7 +371,7 @@ impl CPServer {
         // TODO: use a hashmap id->client for efficiency
         //
         // loop through our clients to find the one with id
-        let maybe_client = self.clients.iter_mut().find(|c| c.has_id(id));
+        let maybe_client = self.clients.iter_mut().find(|c| &c.id == id);
         // validate the client exists
         let client = if let Some(client) = maybe_client {
             client
@@ -382,7 +381,7 @@ impl CPServer {
             return;
         };
         // send
-        dbgprint!("|> {}: '{}'", &client.id, &msg);
+        dbgprint!(" |> {}: '{}'", &client.id, &msg);
         client.send_msg(msg);
     }
     
@@ -394,9 +393,12 @@ impl CPServer {
         let mut gamenite_msgs = Vec::<(String, String)>::new();
         for client in &mut self.clients {
             let msgs = read_msgs_for_client(&client.id)
-                .expect("Failure reading ipc from target");
+                .unwrap_or_else(|e| {
+                    println!("Failure reading message for {}: {}", &client.id, e);
+                    vec![]
+                });
             for m in msgs {
-                dbgprint!("-> {}: '{}'", &client.id, m);
+                dbgprint!("--> {}: '{}'", &client.id, m);
                 if m.starts_with("_") {
                     gamenite_msgs.push((client.id.clone(), m));    // GameNite protocol message
                 } else {
@@ -413,7 +415,7 @@ impl CPServer {
             let mut should = false;
             if let (Some(m), _) = sawket.recv_msg() {
                 if let Msg::Bytes(v) = m {
-                    dbgprint!("|< {} + {:?}", &sawket.addr(), &v);
+                    dbgprint!(" |< {} + {:?}", &sawket.addr(), &v);
                     if v.len() > 0 {
                         subids.push(v[0]);
                         should = true;
@@ -453,15 +455,16 @@ impl CPServer {
             for m in msgs {
                 match m {
                     Msg::Text(t) => {
-                        dbgprint!("<- {}: '{}'", &client.id, &t);
                         if t.starts_with("_") {
+                            dbgprint!(" |< {}: '{}'", &client.id, &t);
                             gamenite_msgs.push((client.id.clone(), t));    // GameNite protocol message
                         } else {
+                            dbgprint!("<-- {}: '{}'", &client.id, &t);
                             game_msgs.push(t);    // game protocol message
                         }
                     }
                     Msg::Bytes(v) => {
-                        dbgprint!("|< {} + {:?}", &client.id, &v);
+                        dbgprint!(" |< {} + {:?}", &client.id, &v);
                         handle_bytes_from_client(&v);
                     }
                 }
@@ -478,7 +481,8 @@ impl CPServer {
         }
     }
 
-    fn _get_name(&mut self, id: &str, message: String) {
+    // '_get_name'
+    fn gamenite_get_name(&mut self, id: &str, message: String) {
         if &message != "_get_name" {
             println!("Warning: invalid message {} should just be '_get_name'",
                      message);
@@ -489,7 +493,8 @@ impl CPServer {
         self.send_message_to_client(id, format!("_name:{}", name));
     }
 
-    fn _change_name(&mut self, id: &str, message: String) {
+    // '_change_name:<new-name>'
+    fn gamenite_change_name(&mut self, id: &str, message: String) {
         let parts: Vec<&str> = message.split(":").collect();
         if parts.len() != 2 {
             println!("Warning: invalid message {} should be formatted \
@@ -498,21 +503,30 @@ impl CPServer {
         }
         self.handle_name_change_request(id, parts[1]);
         let name = self.info.get_name(id);
-        println!("-{}", name);
         self.send_message_to_client(id, format!("_name:{}", name));
+    }
+
+    // '_print'
+    fn gamenite_print(&mut self, id: &str, message: String) {
+        if &message != "_print" {
+            println!("Warning: invalid message {} should just be '_print'",
+                     message);
+            return;
+        }
+        self.info.print();
     }
     
     fn handle_gamenite_message_from_client(&mut self, id: &str, message: String) {
         if message.starts_with("_get_name") {
-            self._get_name(&id, message);
+            self.gamenite_get_name(&id, message);
         } else if message.starts_with("_change_name") {
-            self._change_name(id, message);
+            self.gamenite_change_name(id, message);
         } else if message.starts_with("_print") {
-            self.info.print();
+            self.gamenite_print(id, message);
         }
-            // TODO ping
+        // TODO ping
         else {
-            println!("Warning: received invalid underscore message: {}", message);
+            println!("Warning: received unrecognized underscore message: {}", message);
         }
     }
 
@@ -522,7 +536,7 @@ impl CPServer {
         
     }
     
-    fn handle_gamenite_message_from_target(&mut self, message: String) {
+    fn _handle_gamenite_message_from_target(&mut self, message: String) {
         println!("TODO: handle gamenite message from target: {}", message);
     }
     
