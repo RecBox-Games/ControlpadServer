@@ -116,10 +116,10 @@ fn read_msgs_for_client(id: &CPID) -> Result<Vec<String>> {
 }
 
 // write inbound messages from the client with id for the game to receive
-fn write_msgs_from_client(id: &CPID, msgs: Vec<String>) -> Result<()> {
+fn write_msgs_from_client(id: &CPID, msgs: Vec<&str>) -> Result<()> {
     let mut s = String::new();
     for m in msgs {
-        s += &m;
+        s += m;
         s += str::from_utf8(&[0])?;
     }
     let ipc_name = id.clone() + "_in";
@@ -376,24 +376,6 @@ impl CPServer {
                   .map(|x| &x.id).collect::<Vec<&CPID>>());
     }
 
-    fn send_message_to_client(&mut self, id: &CPID, msg: String) {
-        // TODO: use a hashmap id->client for efficiency
-        //
-        // loop through our clients to find the one with id
-        let maybe_client = self.clients.iter_mut().find(|c| &c.id == id);
-        // validate the client exists
-        let client = if let Some(client) = maybe_client {
-            client
-        } else {
-            println!("Warning: tried to send message to id that doesn't exist \
-                      ({})", id);
-            return;
-        };
-        // send
-        dbgprint!(" |> {}: '{}'", &client.id, &msg);
-        client.send_msg(msg);
-    }
-    
     pub fn handle_subids(&mut self) {
         let mut subids: Vec<u8> = Vec::new();
         let mut got_subid = |sawket: &mut saws::Sawket| -> bool {
@@ -494,7 +476,7 @@ impl CPServer {
                 }
             }
             if game_msgs.len() != 0 {
-                write_msgs_from_client(&client.id, game_msgs)
+                write_msgs_from_client(&client.id, game_msgs.iter().map(|s| s.as_str()).collect())
                     .unwrap_or_else(|e| {
                         println!("Warning: Failure writing ipc from client to \
                                   target. Error: {}", e);
@@ -536,7 +518,33 @@ impl CPServer {
         }
     }
 
+    fn send_message_to_client(&mut self, id: &CPID, msg: String) {
+        // TODO: use a hashmap id->client for efficiency
+        //
+        // loop through our clients to find the one with id
+        let maybe_client = self.clients.iter_mut().find(|c| &c.id == id);
+        // validate the client exists
+        let client = if let Some(client) = maybe_client {
+            client
+        } else {
+            println!("Warning: tried to send message to id that doesn't exist \
+                      ({})", id);
+            return;
+        };
+        // send
+        dbgprint!(" |> {}: '{}'", &client.id, &msg);
+        client.send_msg(msg);
+    }
 
+    fn send_message_to_target(&mut self, id: &CPID, msg: String) {
+        dbgprint!("<|  {}: '{}'", id, &msg);
+        write_msgs_from_client(id, vec![&msg])
+            .unwrap_or_else(|e| {
+                println!("Error: failed to send message to target ({};{}):{}",
+                         id, msg, e);
+            });
+    }
+    
 //      ================== GameNite Protocol Messages ==================      //
     fn handle_gamenite_message(&mut self, id: &CPID, message: String) {
         let parts: Vec<&str> = message.split(":").collect();
@@ -559,12 +567,15 @@ impl CPServer {
     // '_get_name'
     fn gamenite_get_name(&mut self, id: &CPID, args: &[&str]) {
         if args.len() != 0 {
-            println!("Warning: invalid message _get_name:{}. _get_name from controlpads \
+            println!("Warning: invalid message _get_name:{}. _get_name \
                       takes no arguments", args.join(":"));
             return;
         }
         let name = self.info.get_name(id);
+        // Doesn't seem necessary to send name to both sides when only one side
+        // requested it but don't want to differentiate the two yet
         self.send_message_to_client(id, format!("_name:{}", name));
+        self.send_message_to_target(id, format!("_name:{}", name));
     }
 
     // '_change_name:<new-name>'
@@ -577,12 +588,13 @@ impl CPServer {
         self.info.try_change_name(id, args[0]);
         let name = self.info.get_name(id);
         self.send_message_to_client(id, format!("_name:{}", name));
+        self.send_message_to_target(id, format!("_name:{}", name));
     }
 
     // '_print'
     fn gamenite_print(&mut self, _id: &CPID, args: &[&str]) {
         if args.len() != 0 {
-            println!("Warning: invalid message _print:{}. _print from controlpads \
+            println!("Warning: invalid message _print:{}. _print \
                       takes no arguments", args.join(":"));
             return;
         }
