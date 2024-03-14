@@ -229,9 +229,10 @@ impl CPInfo {
         loop {
             name = get_assigned_name(self.next_cp_number);
             self.next_cp_number += 1;
-            // in the vast majority of cases we will break from the loop on the
-            // first iteration
-            if self.is_name_available(&name) {
+            // break if we chose a name that's not taken
+            if !self.id_from_lower_name.contains_key(&name.to_lowercase()) {
+                // in the vast majority of cases we will break from the loop on
+                // the first iteration
                 break;
             }
         }
@@ -261,10 +262,6 @@ impl CPInfo {
         self.id_from_lower_name.remove(&old_lower_name);
         self.name_from_id.insert(id.to_string(), name);
         self.id_from_lower_name.insert(lower_name, id.to_string());        
-    }
-
-    fn is_name_available(&self, name: &str) -> bool {
-        !self.id_from_lower_name.contains_key(&name.to_lowercase())
     }
 
     fn _remove_client(&mut self, id: &CPID) {
@@ -482,10 +479,10 @@ impl CPServer {
     }
 
     // '_get_name'
-    fn gamenite_get_name(&mut self, id: &CPID, message: String) {
-        if &message != "_get_name" {
-            println!("Warning: invalid message {} should just be '_get_name'",
-                     message);
+    fn gamenite_get_name(&mut self, id: &CPID, parts: &[&str]) {
+        if parts.len() != 1 {
+            println!("Warning: invalid message {}. _get_name from controlpads \
+                      takes no arguments", parts.join(":"));
             return;
         }
         let name = self.info.get_name(id);
@@ -494,11 +491,10 @@ impl CPServer {
     }
 
     // '_change_name:<new-name>'
-    fn gamenite_change_name(&mut self, id: &CPID, message: String) {
-        let parts: Vec<&str> = message.split(":").collect();
+    fn gamenite_change_name(&mut self, id: &CPID, parts: &[&str]) {
         if parts.len() != 2 {
             println!("Warning: invalid message {} should be formatted \
-                      '_change_name:<new-name>'", message);
+                      '_change_name:<new-name>'", parts.join(":"));
             return;
         }
         self.handle_name_change_request(id, parts[1]);
@@ -507,22 +503,23 @@ impl CPServer {
     }
 
     // '_print'
-    fn gamenite_print(&mut self, id: &CPID, message: String) {
-        if &message != "_print" {
-            println!("Warning: invalid message {} should just be '_print'",
-                     message);
+    fn gamenite_print(&mut self, _id: &CPID, parts: &[&str]) {
+        if parts.len() != 1 {
+            println!("Warning: invalid message {}. _print from controlpads \
+                      takes no arguments", parts.join(":"));
             return;
         }
         self.info.print();
     }
     
     fn handle_gamenite_message_from_client(&mut self, id: &CPID, message: String) {
-        if message.starts_with("_get_name") {
-            self.gamenite_get_name(&id, message);
-        } else if message.starts_with("_change_name") {
-            self.gamenite_change_name(id, message);
-        } else if message.starts_with("_print") {
-            self.gamenite_print(id, message);
+        let parts: Vec<&str> = message.split(":").collect();
+        if parts[0] == "_get_name" {
+            self.gamenite_get_name(&id, &parts[1..]);
+        } else if parts[0] == "_change_name" { 
+            self.gamenite_change_name(id, &parts[1..]);
+        } else if parts[0] == "_print" {
+            self.gamenite_print(id, &parts[1..]);
         }
         // TODO ping
         else {
