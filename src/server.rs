@@ -436,7 +436,8 @@ impl CPServer {
     // notify all clients that they should refresh their webpage
     pub fn send_reloads_to_clients(&mut self)  {
         let should_reload = self.read_reload().unwrap_or_else( |e| {
-            panic!("Failed to read reload message with error {}", e);
+            println!("Failed to read reload message with error {}", e);
+            false
         });
         if !should_reload {
             return;
