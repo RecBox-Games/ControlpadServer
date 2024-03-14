@@ -537,7 +537,7 @@ impl CPServer {
     }
 
 
-//      ============ GameNite Protocol Messages From Clients ===========      //
+//      ================== GameNite Protocol Messages ==================      //
     fn handle_gamenite_message(&mut self, id: &CPID, message: String) {
         let parts: Vec<&str> = message.split(":").collect();
         if parts[0] == "_get_name" {
@@ -589,62 +589,6 @@ impl CPServer {
         self.info.print();
     }
 
-    
-//      ============ GameNite Protocol Messages From Target ============      //
-    
-/*    fn handle_gamenite_target_message(&mut self, message: String) {
-        let parts: Vec<&str> = message.split(":").collect();
-        if parts[0] == "_get_name" {
-            self.target_get_name(&parts[1..]);
-        } else if parts[0] == "_change_name" { 
-            self.target_change_name(&parts[1..]);
-        } else if parts[0] == "_print" {
-            self.target_print(&parts[1..]);
-        }
-        // TODO ping
-        else {
-            println!("Warning: received unrecognized underscore message: {}\n\
-                      Messages sent over this protocol which start with _ are \
-                      handled by the controlpad server instead of being \
-                      forwarded to the game. Check the documentation.", message);
-        }
-    }
-
-    // '_get_name'
-    fn target_get_name(&mut self, args: &[&str]) {
-        if args.len() != 1 {
-            println!("Warning: invalid message _get_name:{}. _get_name from target \
-                      takes exactly one argument", args.join(":"));
-            return;
-        }
-        let id = args[0].to_string(); // TODO: this'll go away when we change ID to a numerical type
-        let name = self.info.get_name(&id);
-        self.send_message_to_client(&id, format!("_name:{}", name));
-    }
-
-    // '_change_name:<new-name>'
-    fn target_change_name(&mut self, args: &[&str]) {
-        if args.len() != 2 {
-            println!("Warning: invalid message _change_name:{} should be formatted \
-                      '_change_name:<client-id>:<new-name>'", args.join(":"));
-            return;
-        }
-        let id = args[0].to_string(); // TODO: this'll go away when we change ID to a numerical type
-        self.info.try_change_name(&id, args[1]);
-        let name = self.info.get_name(&id);
-        self.send_message_to_client(&id, format!("_name:{}", name));
-    }
-
-    // '_print'
-    fn target_print(&mut self, args: &[&str]) {
-        if args.len() != 0 {
-            println!("Warning: invalid message _print:{}. _print from controlpads \
-                      takes no arguments", args.join(":"));
-            return;
-        }
-        self.info.print();
-    }
-*/
 }
 
 //=================================== main ===================================//
