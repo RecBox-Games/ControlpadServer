@@ -116,10 +116,10 @@ fn read_msgs_for_client(id: &CPID) -> Result<Vec<String>> {
 }
 
 // write inbound messages from the client with id for the game to receive
-fn write_msgs_from_client(id: &CPID, msgs: Vec<String>) -> Result<()> {
+fn write_msgs_from_client(id: &CPID, msgs: Vec<&str>) -> Result<()> {
     let mut s = String::new();
     for m in msgs {
-        s += &m;
+        s += m;
         s += str::from_utf8(&[0])?;
     }
     let ipc_name = id.clone() + "_in";
@@ -247,7 +247,12 @@ impl CPInfo {
         self.name_from_id.insert(id.clone(), name);
     }
 
-    fn try_change_name(&mut self, id: &CPID, name: String) {
+    fn try_change_name(&mut self, id: &CPID, name: &str) {
+        let cleaned_name = clean_name(name);
+        if cleaned_name.len() == 0 {
+            // we don't allow empty name
+            return;
+        }
         let lower_name = name.to_lowercase();
         let old_lower_name = if let Some(oln) = self.name_from_id.get(id) {
             oln.to_lowercase()
@@ -267,7 +272,7 @@ impl CPInfo {
         }
         // change internal structures to represent the name change
         self.id_from_lower_name.remove(&old_lower_name);
-        self.name_from_id.insert(id.to_string(), name);
+        self.name_from_id.insert(id.to_string(), name.to_string());
         self.id_from_lower_name.insert(lower_name, id.to_string());        
     }
 
@@ -371,53 +376,6 @@ impl CPServer {
                   .map(|x| &x.id).collect::<Vec<&CPID>>());
     }
 
-    fn send_message_to_client(&mut self, id: &CPID, msg: String) {
-        // TODO: use a hashmap id->client for efficiency
-        //
-        // loop through our clients to find the one with id
-        let maybe_client = self.clients.iter_mut().find(|c| &c.id == id);
-        // validate the client exists
-        let client = if let Some(client) = maybe_client {
-            client
-        } else {
-            println!("Warning: tried to send message to id that doesn't exist \
-                      ({})", id);
-            return;
-        };
-        // send
-        dbgprint!(" |> {}: '{}'", &client.id, &msg);
-        client.send_msg(msg);
-    }
-    
-    // for each "_out" ipc object that has new messages, send those messages
-    // over websocket to the associated client
-    pub fn handle_messages_from_target(&mut self) {
-        // TODO: In the first pass of loop over self.clients, collect up the
-        //       messages. In the second pass, send to all clients with that ID
-        let mut gamenite_msgs = Vec::<(CPID, String)>::new();
-        for client in &mut self.clients {
-            let msgs = read_msgs_for_client(&client.id)
-                .unwrap_or_else(|e| {
-                    println!("Failure reading message for {}: {}",
-                             &client.id, e);
-                    vec![]
-                });
-            for m in msgs {
-                
-                if m.starts_with("_") {
-                    // GameNite protocol message
-                    dbgprint!(">|  {}: '{}'", &client.id, m);
-                    gamenite_msgs.push((client.id.clone(), m));    
-                } else {
-                    // game protocol message
-                    dbgprint!("--> {}: '{}'", &client.id, m);
-                    client.send_msg(m);    
-                }
-            }
-        }
-        // TODO: handle gamenite_messages
-    }
-
     pub fn handle_subids(&mut self) {
         let mut subids: Vec<u8> = Vec::new();
         let mut got_subid = |sawket: &mut saws::Sawket| -> bool {
@@ -456,6 +414,42 @@ impl CPServer {
         }
     }
     
+    // Out: whether or not all clients should be reloaded
+    pub fn read_reload(&mut self) -> Result<bool> {
+        let ipc_name = "rpc_out";
+        //read here
+        let rpc_contents = ipc::consume(&ipc_name)?;
+        if rpc_contents.len() == 0 {
+            return Ok(false);
+        }
+        let mut parts = rpc_contents.split(str::from_utf8(&[0])?)
+            .collect::<Vec<&str>>();
+        parts.pop();
+        for message in parts {
+            if message == "reload" {
+                return Ok(true)
+            }
+        }
+        return Ok(false);
+    }
+
+    // notify all clients that they should refresh their webpage
+    pub fn send_reloads_to_clients(&mut self)  {
+        let should_reload = self.read_reload().unwrap_or_else( |e| {
+            println!("Failed to read reload message with error {}", e);
+            false
+        });
+        if !should_reload {
+            return;
+        }
+        // go through clients and send vec![0x1] which means reload
+        for client in &mut self.clients {
+            for sawk in & mut client.sawkets {
+                sawk.send_msg(Msg::Bytes(vec![0x1]));
+            }
+        }
+    }
+
     // for each websocket that had new messages, write those messages to the
     // associated  "_in" ipc object
     pub fn handle_messages_from_clients(&mut self) {
@@ -483,7 +477,7 @@ impl CPServer {
                 }
             }
             if game_msgs.len() != 0 {
-                write_msgs_from_client(&client.id, game_msgs)
+                write_msgs_from_client(&client.id, game_msgs.iter().map(|s| s.as_str()).collect())
                     .unwrap_or_else(|e| {
                         println!("Warning: Failure writing ipc from client to \
                                   target. Error: {}", e);
@@ -491,45 +485,69 @@ impl CPServer {
             }
         }
         for (id, msg) in gamenite_msgs {
-            self.handle_gamenite_client_message(&id, msg);
+            self.handle_gamenite_message(&id, msg);
         }
     }
 
-    // '_get_name'
-    fn gamenite_get_name(&mut self, id: &CPID, args: &[&str]) {
-        if args.len() != 0 {
-            println!("Warning: invalid message {}. _get_name from controlpads \
-                      takes no arguments", args.join(":"));
-            return;
+    // for each "_out" ipc object that has new messages, send those messages
+    // over websocket to the associated client
+    pub fn handle_messages_from_target(&mut self) {
+        // TODO: In the first pass of loop over self.clients, collect up the
+        //       messages. In the second pass, send to all clients with that ID
+        let mut gamenite_msgs = Vec::<(CPID, String)>::new();
+        for client in &mut self.clients {
+            let msgs = read_msgs_for_client(&client.id)
+                .unwrap_or_else(|e| {
+                    println!("Failure reading message for {}: {}",
+                             &client.id, e);
+                    vec![]
+                });
+            for m in msgs {
+                if m.starts_with("_") {
+                    // GameNite protocol message
+                    dbgprint!(">|  {}: '{}'", &client.id, m);
+                    gamenite_msgs.push((client.id.clone(), m));    
+                } else {
+                    // game protocol message
+                    dbgprint!("--> {}: '{}'", &client.id, m);
+                    client.send_msg(m);    
+                }
+            }
         }
-        let name = self.info.get_name(id);
-        println!("-{}", name);
-        self.send_message_to_client(id, format!("_name:{}", name));
+        for (id, msg) in gamenite_msgs {
+            self.handle_gamenite_message(&id, msg);
+        }
     }
 
-    // '_change_name:<new-name>'
-    fn gamenite_change_name(&mut self, id: &CPID, args: &[&str]) {
-        if args.len() != 1 {
-            println!("Warning: invalid message {} should be formatted \
-                      '_change_name:<new-name>'", args.join(":"));
+    fn send_message_to_client(&mut self, id: &CPID, msg: String) {
+        // TODO: use a hashmap id->client for efficiency
+        //
+        // loop through our clients to find the one with id
+        let maybe_client = self.clients.iter_mut().find(|c| &c.id == id);
+        // validate the client exists
+        let client = if let Some(client) = maybe_client {
+            client
+        } else {
+            println!("Warning: tried to send message to id that doesn't exist \
+                      ({})", id);
             return;
-        }
-        self.handle_name_change_request(id, args[0]);
-        let name = self.info.get_name(id);
-        self.send_message_to_client(id, format!("_name:{}", name));
+        };
+        // send
+        dbgprint!(" |> {}: '{}'", &client.id, &msg);
+        client.send_msg(msg);
     }
 
-    // '_print'
-    fn gamenite_print(&mut self, _id: &CPID, args: &[&str]) {
-        if args.len() != 0 {
-            println!("Warning: invalid message {}. _print from controlpads \
-                      takes no arguments", args.join(":"));
-            return;
-        }
-        self.info.print();
+    fn send_message_to_target(&mut self, id: &CPID, msg: String) {
+        dbgprint!("<|  {}: '{}'", id, &msg);
+        write_msgs_from_client(id, vec![&msg])
+            .unwrap_or_else(|e| {
+                println!("Error: failed to send message to target ({};{}):{}",
+                         id, msg, e);
+            });
     }
     
-    fn handle_gamenite_client_message(&mut self, id: &CPID, message: String) {
+//      ================== GameNite Protocol Messages ==================      //
+    fn handle_gamenite_message(&mut self, id: &CPID, message: String) {
         let parts: Vec<&str> = message.split(":").collect();
         if parts[0] == "_get_name" {
             self.gamenite_get_name(&id, &parts[1..]);
@@ -547,55 +565,43 @@ impl CPServer {
         }
     }
 
-    fn handle_name_change_request(&mut self, id: &CPID, name: &str) {
-        let cleaned_name = clean_name(name);
-        if cleaned_name.len() == 0 {
-            // we don't allow empty name
+    // '_get_name'
+    fn gamenite_get_name(&mut self, id: &CPID, args: &[&str]) {
+        if args.len() != 0 {
+            println!("Warning: invalid message _get_name:{}. _get_name \
+                      takes no arguments", args.join(":"));
             return;
         }
-        self.info.try_change_name(id, cleaned_name);
-    }
-    
-    fn _handle_gamenite_message_from_target(&mut self, message: String) {
-        println!("TODO: handle gamenite message from target: {}", message);
-    }
-    
-    //pub fn handle_text_messages(&mut self, messages: &Vec<String>, 
-
-    // Out: whether or not all clients should be reloaded
-    pub fn read_reload(&mut self) -> Result<bool> {
-        let ipc_name = "rpc_out";
-        //read here
-        let rpc_contents = ipc::consume(&ipc_name)?;
-        if rpc_contents.len() == 0 {
-            return Ok(false);
-        }
-        let mut parts = rpc_contents.split(str::from_utf8(&[0])?)
-            .collect::<Vec<&str>>();
-        parts.pop();
-        for message in parts {
-            if message == "reload" {
-                return Ok(true)
-            }
-        }
-        return Ok(false);
+        let name = self.info.get_name(id);
+        // Doesn't seem necessary to send name to both sides when only one side
+        // requested it but don't want to differentiate the two yet
+        self.send_message_to_client(id, format!("_name:{}", name));
+        self.send_message_to_target(id, format!("_name:{}", name));
     }
 
-    // notify all clients that they should refresh their webpage
-    pub fn send_reloads_to_clients(&mut self)  {
-        let should_reload = self.read_reload().unwrap_or_else( |e| {
-            panic!("Failed to read reload message with error {}", e);
-        });
-        if !should_reload {
+    // '_change_name:<new-name>'
+    fn gamenite_change_name(&mut self, id: &CPID, args: &[&str]) {
+        if args.len() != 1 {
+            println!("Warning: invalid message _change_name:{} should be formatted \
+                      '_change_name:<new-name>'", args.join(":"));
             return;
         }
-        // go through clients and send vec![0x1] which means reload
-        for client in &mut self.clients {
-            for sawk in & mut client.sawkets {
-                sawk.send_msg(Msg::Bytes(vec![0x1]));
-            }
-        }
+        self.info.try_change_name(id, args[0]);
+        let name = self.info.get_name(id);
+        self.send_message_to_client(id, format!("_name:{}", name));
+        self.send_message_to_target(id, format!("_name:{}", name));
     }
+
+    // '_print'
+    fn gamenite_print(&mut self, _id: &CPID, args: &[&str]) {
+        if args.len() != 0 {
+            println!("Warning: invalid message _print:{}. _print \
+                      takes no arguments", args.join(":"));
+            return;
+        }
+        self.info.print();
+    }
+
 }
 
 //=================================== main ===================================//
