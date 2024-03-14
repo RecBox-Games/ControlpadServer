@@ -45,7 +45,11 @@ const RPC_GETQR: &[u8] = &[0x98, 0x98];
 // assign an animal for a new client
 fn get_assigned_name(cp_number: u64) -> String {
     let suffix_num = cp_number/NUM_ANIMAL_NAMES;
-    let suffix = if suffix_num == 0 { "".to_string() } else { suffix_num.to_string() };
+    let suffix = if suffix_num == 0 {
+        "".to_string()
+    } else {
+        suffix_num.to_string()
+    };
     let animal_index = cp_number % NUM_ANIMAL_NAMES;
     let prefix = ANIMAL_NAMES[animal_index as usize];
     format!("{}{}", prefix, suffix)
@@ -62,7 +66,8 @@ fn clean_name(name: &str) -> String {
         .collect::<String>();
     let collapsed_whitespace = filtered.split_whitespace()
         .collect::<Vec<_>>().join(" ");
-    let trimmed = reduce_to_length(collapsed_whitespace.trim_start(), MAX_NAME_CHARS)
+    let trimmed = reduce_to_length(collapsed_whitespace.trim_start(),
+                                   MAX_NAME_CHARS)
         .trim_end().to_string();
     //
     trimmed
@@ -79,7 +84,7 @@ fn sawket_id_base(sawk: &saws::Sawket) -> String {
 
 // add to the list of connected clients
 fn write_cp_client(client: &CPClient) -> Result<()> {
-    let delin_id = client.id.clone() + str::from_utf8(&[0])?; // known to be valid utf8
+    let delin_id = client.id.clone() + str::from_utf8(&[0])?; // utf8 null byte
     ipc::write("cp_clients", &delin_id)?;
     Ok(())
 }
@@ -101,7 +106,8 @@ fn read_msgs_for_client(id: &CPID) -> Result<Vec<String>> {
     if msgs_string.len() == 0 {
         return Ok(vec![]);
     }
-    let mut parts = msgs_string.split(str::from_utf8(&[0])?).collect::<Vec<&str>>();
+    let mut parts = msgs_string.split(str::from_utf8(&[0])?)
+        .collect::<Vec<&str>>();
     parts.pop(); // there will be nothing after last null byte
     for p in &parts {
         ret.push(String::from(*p));
@@ -145,7 +151,8 @@ fn handle_bytes_from_client(data: &Vec<u8>) {
                                           with error: {}", e));
         return;
     } else {
-        println!("Warning: received byte vector less than 2 bytes long: {:?}", data);
+        println!("Warning: received byte vector less than 2 bytes long: \
+                  {:?}", data);
     }
 }
 
@@ -391,15 +398,20 @@ impl CPServer {
         for client in &mut self.clients {
             let msgs = read_msgs_for_client(&client.id)
                 .unwrap_or_else(|e| {
-                    println!("Failure reading message for {}: {}", &client.id, e);
+                    println!("Failure reading message for {}: {}",
+                             &client.id, e);
                     vec![]
                 });
             for m in msgs {
-                dbgprint!("--> {}: '{}'", &client.id, m);
+                
                 if m.starts_with("_") {
-                    gamenite_msgs.push((client.id.clone(), m));    // GameNite protocol message
+                    // GameNite protocol message
+                    dbgprint!(">|  {}: '{}'", &client.id, m);
+                    gamenite_msgs.push((client.id.clone(), m));    
                 } else {
-                    client.send_msg(m);    // game protocol message
+                    // game protocol message
+                    dbgprint!("--> {}: '{}'", &client.id, m);
+                    client.send_msg(m);    
                 }
             }
         }
@@ -421,7 +433,8 @@ impl CPServer {
                         println!("Warning: invalid subid: {:?}", v);
                     }
                 } else if let Msg::Text(t) = m {
-                    println!("Warning: received Msg::Text from pending sawket : {:?}", t);
+                    println!("Warning: received Msg::Text from pending sawket \
+                              : {:?}", t);
                 } else {
                     println!("Warning: should be unreachable 932845");
                 }
@@ -438,7 +451,8 @@ impl CPServer {
             }
         }
         while unpended_sawkets.len() > 0 {
-            self.incorporate_new_sawket(unpended_sawkets.remove(0), subids.remove(0));
+            self.incorporate_new_sawket(unpended_sawkets.remove(0),
+                                        subids.remove(0));
         }
     }
     
@@ -453,11 +467,13 @@ impl CPServer {
                 match m {
                     Msg::Text(t) => {
                         if t.starts_with("_") {
+                            // GameNite protocol message
                             dbgprint!(" |< {}: '{}'", &client.id, &t);
-                            gamenite_msgs.push((client.id.clone(), t));    // GameNite protocol message
+                            gamenite_msgs.push((client.id.clone(), t));   
                         } else {
+                            // game protocol message                            
                             dbgprint!("<-- {}: '{}'", &client.id, &t);
-                            game_msgs.push(t);    // game protocol message
+                            game_msgs.push(t);    
                         }
                     }
                     Msg::Bytes(v) => {
@@ -469,12 +485,13 @@ impl CPServer {
             if game_msgs.len() != 0 {
                 write_msgs_from_client(&client.id, game_msgs)
                     .unwrap_or_else(|e| {
-                        println!("Warning: Failure writing ipc from client to target. Error: {}", e);
+                        println!("Warning: Failure writing ipc from client to \
+                                  target. Error: {}", e);
                     });
             }
         }
         for (id, msg) in gamenite_msgs {
-            self.handle_gamenite_message_from_client(&id, msg);
+            self.handle_gamenite_client_message(&id, msg);
         }
     }
 
@@ -512,7 +529,7 @@ impl CPServer {
         self.info.print();
     }
     
-    fn handle_gamenite_message_from_client(&mut self, id: &CPID, message: String) {
+    fn handle_gamenite_client_message(&mut self, id: &CPID, message: String) {
         let parts: Vec<&str> = message.split(":").collect();
         if parts[0] == "_get_name" {
             self.gamenite_get_name(&id, &parts[1..]);
@@ -523,7 +540,10 @@ impl CPServer {
         }
         // TODO ping
         else {
-            println!("Warning: received unrecognized underscore message: {}", message);
+            println!("Warning: received unrecognized underscore message: {}\n\
+                      Messages sent over this protocol which start with _ are \
+                      handled by the controlpad server instead of being \
+                      forwarded to the game. Check the documentation.", message);
         }
     }
 
@@ -547,7 +567,8 @@ impl CPServer {
         if rpc_contents.len() == 0 {
             return Ok(false);
         }
-        let mut parts = rpc_contents.split(str::from_utf8(&[0])?).collect::<Vec<&str>>();
+        let mut parts = rpc_contents.split(str::from_utf8(&[0])?)
+            .collect::<Vec<&str>>();
         parts.pop();
         for message in parts {
             if message == "reload" {
