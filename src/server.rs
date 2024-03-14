@@ -205,8 +205,8 @@ impl CPClient {
 //================================== CPInfo ==================================//
 struct CPInfo {
     next_cp_number: u64,
-    name_from_id: HashMap<String, String>,
-    id_from_lower_name: HashMap<String, String>,
+    name_from_id: HashMap<CPID, String>,
+    id_from_lower_name: HashMap<String, CPID>,
 }
 
 impl CPInfo {
@@ -239,7 +239,7 @@ impl CPInfo {
         self.name_from_id.insert(id.clone(), name);
     }
 
-    fn try_change_name(&mut self, id: &str, name: String) {
+    fn try_change_name(&mut self, id: &CPID, name: String) {
         let lower_name = name.to_lowercase();
         let old_lower_name = if let Some(oln) = self.name_from_id.get(id) {
             oln.to_lowercase()
@@ -267,7 +267,7 @@ impl CPInfo {
         !self.id_from_lower_name.contains_key(&name.to_lowercase())
     }
 
-    fn _remove_client(&mut self, id: &str) {
+    fn _remove_client(&mut self, id: &CPID) {
         let name = if let Some(name) = self.name_from_id.remove(id) {
             name
         } else {
@@ -285,7 +285,7 @@ impl CPInfo {
         };
     }
 
-    fn get_name(&mut self, id: &str) -> String {
+    fn get_name(&mut self, id: &CPID) -> String {
         self.name_from_id.get(id)
             .map(|s| s.to_string())
             .unwrap_or_else(|| {
@@ -367,7 +367,7 @@ impl CPServer {
                   .map(|x| &x.id).collect::<Vec<&CPID>>());
     }
 
-    fn send_message_to_client(&mut self, id: &str, msg: String) {
+    fn send_message_to_client(&mut self, id: &CPID, msg: String) {
         // TODO: use a hashmap id->client for efficiency
         //
         // loop through our clients to find the one with id
@@ -390,7 +390,7 @@ impl CPServer {
     pub fn handle_messages_from_target(&mut self) {
         // TODO: In the first pass of loop over self.clients, collect up the
         //       messages. In the second pass, send to all clients with that ID
-        let mut gamenite_msgs = Vec::<(String, String)>::new();
+        let mut gamenite_msgs = Vec::<(CPID, String)>::new();
         for client in &mut self.clients {
             let msgs = read_msgs_for_client(&client.id)
                 .unwrap_or_else(|e| {
@@ -448,7 +448,7 @@ impl CPServer {
     // for each websocket that had new messages, write those messages to the
     // associated  "_in" ipc object
     pub fn handle_messages_from_clients(&mut self) {
-        let mut gamenite_msgs = Vec::<(String, String)>::new();
+        let mut gamenite_msgs = Vec::<(CPID, String)>::new();
         for client in &mut self.clients {
             let msgs = client.recv_msgs();
             let mut game_msgs = Vec::<String>::new();
@@ -482,7 +482,7 @@ impl CPServer {
     }
 
     // '_get_name'
-    fn gamenite_get_name(&mut self, id: &str, message: String) {
+    fn gamenite_get_name(&mut self, id: &CPID, message: String) {
         if &message != "_get_name" {
             println!("Warning: invalid message {} should just be '_get_name'",
                      message);
@@ -494,7 +494,7 @@ impl CPServer {
     }
 
     // '_change_name:<new-name>'
-    fn gamenite_change_name(&mut self, id: &str, message: String) {
+    fn gamenite_change_name(&mut self, id: &CPID, message: String) {
         let parts: Vec<&str> = message.split(":").collect();
         if parts.len() != 2 {
             println!("Warning: invalid message {} should be formatted \
@@ -507,7 +507,7 @@ impl CPServer {
     }
 
     // '_print'
-    fn gamenite_print(&mut self, id: &str, message: String) {
+    fn gamenite_print(&mut self, id: &CPID, message: String) {
         if &message != "_print" {
             println!("Warning: invalid message {} should just be '_print'",
                      message);
@@ -516,7 +516,7 @@ impl CPServer {
         self.info.print();
     }
     
-    fn handle_gamenite_message_from_client(&mut self, id: &str, message: String) {
+    fn handle_gamenite_message_from_client(&mut self, id: &CPID, message: String) {
         if message.starts_with("_get_name") {
             self.gamenite_get_name(&id, message);
         } else if message.starts_with("_change_name") {
@@ -530,9 +530,9 @@ impl CPServer {
         }
     }
 
-    fn handle_name_change_request(&mut self, client: &str, name: &str) {
+    fn handle_name_change_request(&mut self, id: &CPID, name: &str) {
         let cleaned_name = clean_name(name);
-        self.info.try_change_name(client, cleaned_name);
+        self.info.try_change_name(id, cleaned_name);
         
     }
     
