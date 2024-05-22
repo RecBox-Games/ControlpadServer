@@ -253,7 +253,7 @@ impl CPInfo {
             // we don't allow empty name
             return;
         }
-        let lower_name = name.to_lowercase();
+        let lower_name = cleaned_name.to_lowercase();
         let old_lower_name = if let Some(oln) = self.name_from_id.get(id) {
             oln.to_lowercase()
         } else {
@@ -272,7 +272,7 @@ impl CPInfo {
         }
         // change internal structures to represent the name change
         self.id_from_lower_name.remove(&old_lower_name);
-        self.name_from_id.insert(id.to_string(), name.to_string());
+        self.name_from_id.insert(id.to_string(), cleaned_name.to_string());
         self.id_from_lower_name.insert(lower_name, id.to_string());        
     }
 
