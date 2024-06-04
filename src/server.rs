@@ -32,7 +32,7 @@ const MAX_NAME_CHARS: usize = 16;
 
 // RPC without arguments should always be 2 bytes
 const RPC_QUIT: &[u8] = &[0x99, 0x99];
-const RPC_GETQR: &[u8] = &[0x98, 0x98];
+// const RPC_GETQR: &[u8] = &[0x98, 0x98];
 // note: The term RPC is used loosely here. In this context it just means parts
 //       of the controlpad message passing protocol that
 
@@ -133,9 +133,6 @@ fn write_rpc_message(data: &Vec<u8>) -> Result<()> {
     if *data == RPC_QUIT {
         let s = "quit".to_string() + str::from_utf8(&[0])?;        
         ipc::write(ipc_name, &s)?;        
-    } else if *data == RPC_GETQR {
-        let s = "getqr".to_string() + str::from_utf8(&[0])?;        
-        ipc::write(ipc_name, &s)?;
     } else {
         println!("Warning: invalid rpc message: {:?}", data);
     }
