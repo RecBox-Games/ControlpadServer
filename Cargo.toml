@@ -29,3 +29,7 @@ path = "src/test_client.rs"
 [[bin]]
 name = "target"
 path = "src/test_target.rs"
+
+[[bin]]
+name = "ipc"
+path = "src/ipc_test.rs"
