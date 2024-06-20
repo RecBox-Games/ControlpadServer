@@ -19,7 +19,7 @@ were fixed by wrapping that same code in one of these systemlocks)
 const LOCK_DIR: &str = "/var/tmp";
 #[cfg(target_os = "linux")]
 //const LOCK_DIR: &str = "/var/lock/";
-const LOCK_DIR: &str = "/dev/shm/rqnio/";
+const LOCK_DIR: &str = "/dev/shm/";
 #[cfg(target_os = "windows")]
 const LOCK_DIR: &str = "C:\\Users\\gamenite";
 //
