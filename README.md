@@ -5,7 +5,7 @@ over LAN. This allows players to use their mobile phone as a controller.
 ControlpadServer was built for the GameNite gaming console but can be used
 independently of the console.
 
-[GameNite Controlpads Architecture](./docs/architecture.png)
+![GameNite Controlpads Architecture](./docs/architecture.png)
 
 
 ## Open Source
